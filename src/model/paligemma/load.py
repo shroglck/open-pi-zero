@@ -1,14 +1,13 @@
-from transformers import AutoTokenizer
-import json
 import glob
-from safetensors import safe_open
-from typing import Tuple
+import json
 import os
+from typing import Tuple
 
-from src.model.paligemma.gemma import (
-    PaliGemmaForConditionalGeneration,
-    PaliGemmaConfig,
-)
+from safetensors import safe_open
+from transformers import AutoTokenizer
+
+from src.model.paligemma.config import PaliGemmaConfig
+from src.model.paligemma.gemma import PaliGemmaForConditionalGeneration
 
 
 def load_hf_model(

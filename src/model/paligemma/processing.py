@@ -1,7 +1,8 @@
-from typing import Dict, List, Optional, Union, Tuple, Iterable
+from typing import Dict, Iterable, List, Optional, Tuple, Union
+
 import numpy as np
-from PIL import Image
 import torch
+from PIL import Image
 
 IMAGENET_STANDARD_MEAN = [0.5, 0.5, 0.5]
 IMAGENET_STANDARD_STD = [0.5, 0.5, 0.5]
@@ -59,9 +60,9 @@ def normalize(
 
 def process_images(
     images: List[Image.Image],
-    size: Dict[str, int] = None,
-    resample: Image.Resampling = None,
-    rescale_factor: float = None,
+    size: Dict[str, int],
+    resample: Image.Resampling,
+    rescale_factor: float,
     image_mean: Optional[Union[float, List[float]]] = None,
     image_std: Optional[Union[float, List[float]]] = None,
 ) -> List[np.ndarray]:
@@ -81,7 +82,6 @@ def process_images(
 
 
 class PaliGemmaProcessor:
-
     IMAGE_TOKEN = "<image>"
 
     def __init__(

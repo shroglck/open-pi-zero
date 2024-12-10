@@ -1,11 +1,11 @@
-from PIL import Image
-import torch
-import fire
 import time
 
-from src.model.paligemma.processing import PaliGemmaProcessor
+import torch
+from PIL import Image
+
 from src.model.paligemma.gemma import KVCache, PaliGemmaForConditionalGeneration
 from src.model.paligemma.load import load_hf_model
+from src.model.paligemma.processing import PaliGemmaProcessor
 
 
 def move_inputs_to_device(model_inputs: dict, device: str):
@@ -14,7 +14,10 @@ def move_inputs_to_device(model_inputs: dict, device: str):
 
 
 def get_model_inputs(
-    processor: PaliGemmaProcessor, prompt: str, image_file_path: str, device: str
+    processor: PaliGemmaProcessor,
+    prompt: str,
+    image_file_path: str,
+    device: str,
 ):
     image = Image.open(image_file_path).convert("RGB")
     images = [image]
@@ -103,9 +106,9 @@ def _sample_top_p(probs: torch.Tensor, p: float):
 
 
 def main(
-    model_path: str = None,
-    prompt: str = None,
-    image_file_path: str = None,
+    model_path,
+    prompt,
+    image_file_path,
     max_tokens_to_generate: int = 100,
     temperature: float = 0.8,
     top_p: float = 0.9,
@@ -122,7 +125,7 @@ def main(
 
     print("Device in use: ", device)
 
-    print(f"Loading model")
+    print("Loading model")
     time_start_load = time.time()
     model, tokenizer = load_hf_model(model_path, device)
     model = model.to(device).eval()
@@ -149,4 +152,17 @@ def main(
 
 
 if __name__ == "__main__":
-    fire.Fire(main)
+    import argparse
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model_path", type=str)
+    parser.add_argument("--prompt", type=str)
+    parser.add_argument("--image_file_path", type=str)
+    parser.add_argument("--max_tokens_to_generate", type=int, default=100)
+    parser.add_argument("--temperature", type=float, default=0.8)
+    parser.add_argument("--top_p", type=float, default=0.9)
+    parser.add_argument("--do_sample", action="store_true")
+    parser.add_argument("--only_cpu", action="store_true")
+    args = parser.parse_args()
+
+    main(**vars(args))
