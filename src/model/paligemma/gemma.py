@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from src.model.paligemma.modules import GemmaMLP, GemmaRMSNorm, GemmaRotaryEmbedding
-from src.model.paligemma.siglip import SiglipVisionModel
+from src.model.paligemma.siglip import PaliGemmaMultiModalProjector, SiglipVisionModel
 from src.model.paligemma.utils import KVCache, apply_rotary_pos_emb, repeat_kv
 
 
@@ -28,7 +28,9 @@ class GemmaAttention(nn.Module):
         assert self.hidden_size % self.num_heads == 0
 
         self.q_proj = nn.Linear(
-            self.hidden_size, self.num_heads * self.head_dim, bias=config.attention_bias
+            self.hidden_size,
+            self.num_heads * self.head_dim,
+            bias=config.attention_bias,
         )
         self.k_proj = nn.Linear(
             self.hidden_size,
@@ -41,7 +43,9 @@ class GemmaAttention(nn.Module):
             bias=config.attention_bias,
         )
         self.o_proj = nn.Linear(
-            self.num_heads * self.head_dim, self.hidden_size, bias=config.attention_bias
+            self.num_heads * self.head_dim,
+            self.hidden_size,
+            bias=config.attention_bias,
         )
         self.rotary_emb = GemmaRotaryEmbedding(
             self.head_dim,
@@ -276,25 +280,11 @@ class GemmaForCausalLM(nn.Module):
         return return_data
 
 
-class PaliGemmaMultiModalProjector(nn.Module):
-    def __init__(self, config):
-        super().__init__()
-        self.linear = nn.Linear(
-            config.vision_config.hidden_size,
-            config.vision_config.projection_dim,
-            bias=True,
-        )
-
-    def forward(self, image_features):
-        # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Projection_Dim]
-        hidden_states = self.linear(image_features)
-        return hidden_states
-
-
 class PaliGemmaForConditionalGeneration(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
+
         self.vision_tower = SiglipVisionModel(config.vision_config)
         self.multi_modal_projector = PaliGemmaMultiModalProjector(config)
         self.vocab_size = config.vocab_size
@@ -320,6 +310,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
         _, _, embed_dim = image_features.shape
         batch_size, sequence_length = input_ids.shape
         dtype, device = inputs_embeds.dtype, inputs_embeds.device
+
         # Shape: [Batch_Size, Seq_Len, Hidden_Size]
         scaled_image_features = image_features / (self.config.hidden_size**0.5)
 
@@ -413,10 +404,11 @@ class PaliGemmaForConditionalGeneration(nn.Module):
         # shape: (Batch_Size, Seq_Len, Hidden_Size)
         inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
 
+        # TODO: why not cache this in text generation?
         # 2. Merge text and images
         # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
         selected_image_feature = self.vision_tower(pixel_values.to(inputs_embeds.dtype))
-        # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Hidden_Size]
+        # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Projected_Dim]
         image_features = self.multi_modal_projector(selected_image_feature)
 
         # Merge the embeddings of the text tokens and the image tokens
