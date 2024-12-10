@@ -1,5 +1,23 @@
 # pg-vla
 
+## Installation
+Install uv
+```console
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+The dependencies will be configured automatically when running any `uv run ...` command.
+
+### Test PaliGemma text generation
+```console
+uv run python scripts/tests/run_paligemma.py \
+    --model_path "/n/fs/llm-unc/.cache/paligemma-3b-pt-224" \
+    --prompt "this image shows " \
+    --image_file_path "media/maniskill_pp.png" \
+    --max_tokens_to_generate 100 \
+    --temperature 0.8 \
+    --top_p 0.9
+```
+
 ## Data
 
 ### OXE
@@ -23,6 +41,13 @@ uv run python scripts/data/modify_rlds_dataset.py \
 This resizes the images to 224x224 (as opposed to 256x256 in Octo).
 
 Running dataloader for the first time will take some time for calculating the normalization statistics, which is then saved.
+```console
+uv run python src/data/dataloader.py \
+    --data_path=/n/fs/llm-unc/data/resize_224 \
+    --mix=oxe_simple
+```
+
+## Model
 
 ## Resources
 
