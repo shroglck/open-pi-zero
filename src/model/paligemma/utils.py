@@ -31,6 +31,7 @@ def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
 
 class KVCache:
     def __init__(self) -> None:
+        """list for layers"""
         self.key_cache: List[torch.Tensor] = []
         self.value_cache: List[torch.Tensor] = []
 
@@ -60,6 +61,50 @@ class KVCache:
             self.value_cache[layer_idx] = torch.cat(
                 [self.value_cache[layer_idx], value_states], dim=-2
             )
+
+        # ... and then we return all the existing keys + the new ones.
+        return self.key_cache[layer_idx], self.value_cache[layer_idx]
+
+
+class JointKVCache:
+    def __init__(self) -> None:
+        """outer list for layers, inner list for blocks"""
+        self.key_cache: List[List[torch.Tensor]] = []
+        self.value_cache: List[List[torch.Tensor]] = []
+
+    def has_item(self, layer_idx) -> bool:
+        return len(self.key_cache) > layer_idx
+
+    def get(self, layer_idx) -> Tuple[List[torch.Tensor], List[torch.Tensor]]:
+        return self.key_cache[layer_idx], self.value_cache[layer_idx]
+
+    def update(
+        self,
+        key_states_all: List[torch.Tensor],
+        value_states_all: List[torch.Tensor],
+        layer_idx: int,
+    ) -> Tuple[torch.Tensor, torch.Tensor]:
+        num_blocks = len(self.key_cache)
+        if len(self.key_cache) <= layer_idx:
+            # If we never added anything to the KV-Cache of this layer, let's create it.
+            self.key_cache.append(key_states_all)
+            self.value_cache.append(value_states_all)
+            return key_states_all, value_states_all
+        else:
+            # ... otherwise we concatenate the new keys with the existing ones.
+            # each tensor has shape: [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
+            for block_idx in range(num_blocks):
+                self.key_cache[layer_idx][block_idx] = torch.cat(
+                    [self.key_cache[layer_idx][block_idx], key_states_all[block_idx]],
+                    dim=-2,
+                )
+                self.value_cache[layer_idx][block_idx] = torch.cat(
+                    [
+                        self.value_cache[layer_idx][block_idx],
+                        value_states_all[block_idx],
+                    ],
+                    dim=-2,
+                )
 
         # ... and then we return all the existing keys + the new ones.
         return self.key_cache[layer_idx], self.value_cache[layer_idx]
