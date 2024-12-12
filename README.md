@@ -9,6 +9,7 @@ The dependencies will be configured automatically when running any `uv run ...` 
 
 ### Test PaliGemma text generation
 ```console
+git clone https://huggingface.co/google/paligemma2-3b-pt-224    # at desired cache location
 uv run python scripts/tests/run_paligemma.py \
     --model_path "/n/fs/llm-unc/.cache/paligemma-3b-pt-224" \
     --prompt "this image shows " \
@@ -25,10 +26,10 @@ Currently using meta robot and widowx data (fractal/RT-1, bridge, optionally BC-
 
 Download data by
 ```console
-uv run gsutil -m cp -r gs://gresearch/robotics/fractal20220817_data/0.1.0 ../data
+uv run gsutil -m cp -r gs://gresearch/robotics/fractal20220817_data/0.1.0 ../data   # bridge_dataset
 ```
 
-Preprocess (taken from [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main) and [Octo](https://github.com/kpertsch/rlds_dataset_mod/blob/main/prepare_open_x.sh)). First we need to comment out Line 299-306 in `/n/fs/llm-unc/pg-vla/.venv/lib/python3.10/site-packages/tensorflow_datasets/core/dataset_builder.py` to avoid the `AttributeError: 'MultiplexedPath' object has no attribute 'parts'` error (seems an issue with running python3.10; using `tensorflow_datasets==4.9.2` fixes this issue but disabling gcs does not work any more somehow). Then run
+Preprocess (taken from [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main) and [Octo](https://github.com/kpertsch/rlds_dataset_mod/blob/main/prepare_open_x.sh)). First we need to comment out Line 299-306 in `/n/fs/llm-unc/pg-vla/.venv/lib/python3.10/site-packages/tensorflow_datasets/core/dataset_builder.py` to avoid the `AttributeError: 'MultiplexedPath' object has no attribute 'parts'` error (seems an issue with running python3.10; using `tensorflow_datasets==4.9.2` fixes this issue but disabling gcs does not work any more somehow). Then run (with enough RAM)
 ```console
 uv run python scripts/data/modify_rlds_dataset.py \
     --dataset=fractal20220817_data \
@@ -49,8 +50,24 @@ uv run python src/data/dataloader.py \
 
 ## Model
 
+### Tests
+Block attention with dummy embeddings for img/text, proprio, and action
+```console
+uv run python src/model/vla/modules.py
+```
+
+VLA with dummy img/text, proprio, and action, output flow matching action
+```console
+uv run python src/model/vla/model.py
+```
+
+VLA with dummy img/text, proprio, and action, and output text
+```console
+uv run python src/model/vla/model.py --text_only
+```
+
 ## Resources
 
-Octo, OpenVLA
+Octo, OpenVLA, Pi0 paper
 
 Paligemma [https://github.com/hkproj/pytorch-paligemma/tree/main](https://github.com/hkproj/pytorch-paligemma/tree/main)
