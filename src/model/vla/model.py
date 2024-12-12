@@ -10,6 +10,7 @@ from torch import nn
 
 from src.model.paligemma.utils import JointKVCache, KVCache
 from src.model.vla.modules import ActionTimeEncoder
+from src.model.vla.utils import sample_from_transformed_beta
 from src.utils.time import log_execution_time
 
 log = logging.getLogger(__name__)
@@ -32,13 +33,22 @@ class VLA(nn.Module):
         self.cache_block_indices = [
             0,
             1,
-        ]  # do not cache action, which is the last block of the three
+        ]  # do not cache action since not autoregressive, which is the last block of the three
 
         # Action parameterization
         self.num_inference_steps = cfg.num_inference_steps
         self.horizon_steps = cfg.horizon_steps
         self.action_dim = cfg.action_dim
         self.final_action_clip_value = cfg.final_action_clip_value
+        self.sig_min = cfg.get("flow_sig_min", 0.001)
+        self.gamma_alpha = cfg.get("flow_gamma_alpha", 1.5)
+        self.gamma_beta = cfg.get("flow_gamma_beta", 1)
+        self.gamma_max = 1 - self.sig_min
+        self.schedule = cfg.get("flow_schedule", "linear")
+        assert self.schedule in [
+            "linear",
+            "gamma",
+        ], f"Invalid schedule: {self.schedule}"
 
         # text input only
         self.embed_tokens = nn.Embedding(
@@ -294,12 +304,12 @@ class VLA(nn.Module):
         return causal_mask, position_ids
 
     @torch.no_grad()
-    def forward_action(
+    def forward(
         self,
         input_ids: torch.LongTensor,
         pixel_values: torch.FloatTensor,
         attention_mask: torch.Tensor,
-        proprio: torch.FloatTensor,
+        proprios: torch.FloatTensor,
         kv_cache: Optional[JointKVCache] = None,
     ) -> torch.FloatTensor:
         kv_cache = JointKVCache() if kv_cache is None else kv_cache
@@ -314,7 +324,7 @@ class VLA(nn.Module):
         ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
 
         # Encode proprio
-        proprio_embeds = self.proprio_encoder(proprio)
+        proprio_embeds = self.proprio_encoder(proprios)
 
         # Sample pure action noise
         bsz = input_ids.size(0)
@@ -347,8 +357,8 @@ class VLA(nn.Module):
                 cache_block_indices=self.cache_block_indices,
             )
             # decode action: [Batch_Size, Horizon_Steps, Action_Dim]
-            action_decoded = self.action_decoder(action_embeds)
-            action += delta_t * action_decoded
+            action_vel = self.action_decoder(action_embeds)
+            action += delta_t * action_vel
             t += delta_t
 
         # clamp final output if specified
@@ -394,6 +404,80 @@ class VLA(nn.Module):
             return_data["kv_cache"] = kv_cache
         return return_data
 
+    # ---------- Flow matching training ----------#
+
+    def psi_t(
+        self,
+        x: torch.FloatTensor,
+        x1: torch.FloatTensor,
+        t: torch.FloatTensor,
+    ) -> torch.FloatTensor:
+        """Conditional Flow"""
+        t = t[:, None, None]  # (B, 1, 1)
+        return (1 - (1 - self.sig_min) * t) * x + t * x1
+
+    def loss(
+        self,
+        pixel_values: torch.ByteTensor,
+        input_ids: torch.LongTensor,
+        proprios: torch.FloatTensor,
+        actions: torch.FloatTensor,
+        attention_mask: torch.Tensor,
+    ) -> torch.FloatTensor:
+        """diffusion / flow matching loss for action prediction, no cache"""
+        device = input_ids.device
+        bsz = len(input_ids)
+        x1 = actions
+        if self.schedule == "linear":  # uniform between 0 and 1
+            """https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb"""
+            eps = 1e-5
+            t = (
+                torch.rand(1, device=device) + torch.arange(bsz, device=device) / bsz
+            ) % (1 - eps)
+        elif self.schedule == "gamma":  # from pi0 paper
+            t = sample_from_transformed_beta(
+                self.gamma_alpha, self.gamma_beta, self.gamma_max, size=bsz
+            )
+            t = torch.from_numpy(t).float().to(device)  # (B,)
+        # x ~ p_t(x0)
+        x0 = torch.randn_like(actions, device=device)
+
+        # get noisy action
+        # [Batch_Size, Horizon_Steps, Action_Dim]
+        psi_t = self.psi_t(x0, x1, t)
+
+        # Merge the text tokens and the image tokens
+        inputs_embeds = self._merge_input_ids_with_pixel_values(input_ids, pixel_values)
+
+        # Build causal mask and position ids for action
+        (
+            causal_mask,
+            position_ids_all,
+        ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
+
+        # Encode proprio
+        proprio_embeds = self.proprio_encoder(proprios)
+
+        # inference with noisy action
+        # [Batch_Size, Horizon_Steps, Embed_Dim]
+        action_embeds = self.action_time_encoder(psi_t, t)
+        # forward thru joint model with block attention
+        # [Batch_Size, Horizon_Steps, Embed_Dim]
+        action_embeds = self.joint_model(
+            attention_mask=causal_mask,
+            position_ids_all=position_ids_all,
+            inputs_embeds=inputs_embeds,
+            proprio_embeds=proprio_embeds,
+            action_embeds=action_embeds,
+            cache_block_indices=self.cache_block_indices,
+        )
+        # [Batch_Size, Horizon_Steps, Action_Dim]
+        v_psi = self.action_decoder(action_embeds)
+
+        # Compare to true velocity
+        d_psi = x1 - (1 - self.sig_min) * x0
+        return torch.mean((v_psi - d_psi) ** 2)
+
 
 if __name__ == "__main__":
     import argparse
@@ -409,7 +493,9 @@ if __name__ == "__main__":
     parser.add_argument("--text_only", action="store_true")
     parser.add_argument("--load_pretrained_weights", action="store_true")
     parser.add_argument("--cpu", action="store_true")
+    parser.add_argument("--loss_only", action="store_true")
     args = parser.parse_args()
+    assert not (args.text_only and args.loss_only)
 
     config = OmegaConf.load("config/train/pg_oxe.yaml")
     if args.text_only:
@@ -437,7 +523,7 @@ if __name__ == "__main__":
         "this is a nice portrait of London because ",
     ][:bsz]
     dummy_proprio = torch.rand(bsz, config.cond_steps, config.action_dim).to(
-        "cuda"
+        device
     )  # not used if text_only
 
     # tokenizer
@@ -452,11 +538,11 @@ if __name__ == "__main__":
 
     # process image and text
     model_inputs = processor(text=dummy_texts, images=dummy_images)
-    input_ids = model_inputs["input_ids"].to("cuda")
+    input_ids = model_inputs["input_ids"].to(device)
     attention_mask = model_inputs["attention_mask"].to(
-        "cuda"
+        device
     )  # with padding if bsz > 1
-    pixel_values = model_inputs["pixel_values"].to("cuda")
+    pixel_values = model_inputs["pixel_values"].to(device)
 
     # inference - text or actions
     if args.text_only:
@@ -494,12 +580,24 @@ if __name__ == "__main__":
         decoded = processor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
         print("Prompt:", dummy_texts[0])
         print("Generated text:", decoded)
-    else:
-        actions = model.forward_action(
+    elif args.loss_only:
+        dummy_actions = torch.randn(bsz, config.horizon_steps, config.action_dim).to(
+            device
+        )  # TODO: training data is normalized within some range?
+        loss = model.loss(
+            pixel_values=pixel_values,
+            input_ids=input_ids,
+            proprios=dummy_proprio,
+            actions=dummy_actions,
+            attention_mask=attention_mask,
+        )
+        print("Loss:", loss)
+    else:  # dummy action generation
+        actions = model.forward(
             input_ids=input_ids,
             pixel_values=pixel_values,
             attention_mask=attention_mask,  # only for image/text
-            proprio=dummy_proprio,
+            proprios=dummy_proprio,
         )
         print("Final action dimensions:", actions.shape)
         print("Final action values:", actions)
