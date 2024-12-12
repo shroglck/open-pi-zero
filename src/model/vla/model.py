@@ -80,8 +80,9 @@ class VLA(nn.Module):
 
     @log_execution_time()
     def load_pretrained_weights(self):
-        """vision, projector, lm"""
+        """vision, projector, lm from paligemma"""
 
+        # load tensors from files
         safetensors_files = glob.glob(
             os.path.join(self.cfg.pretrained_model_path, "*.safetensors")
         )
@@ -91,9 +92,63 @@ class VLA(nn.Module):
                 for key in f.keys():
                     tensors[key] = f.get_tensor(key)
 
-        # load to corresponding layers
-        # TODO
-        breakpoint()
+        # load embed tokens
+        embed_tokens_state_dict = self.embed_tokens.state_dict()
+        for k, v in tensors.items():
+            if "embed_tokens" in k:
+                new_key = k.replace("language_model.model.embed_tokens.", "")
+                embed_tokens_state_dict[new_key] = v
+        self.embed_tokens.load_state_dict(embed_tokens_state_dict, strict=True)
+        print("Loaded pre-trained weights for embed tokens")
+
+        # load vision tower --- "vision_tower.vision_model" -> "vision_model"
+        vision_tower_state_dict = self.vision_tower.state_dict()
+        for k, v in tensors.items():
+            if "vision_tower" in k:
+                new_key = k.replace("vision_tower.", "")
+                vision_tower_state_dict[new_key] = v
+        self.vision_tower.load_state_dict(vision_tower_state_dict, strict=True)
+        print("Loaded pre-trained weights for vision tower")
+
+        # load projector --- "multi_modal_projector.linear" -> "linear"
+        multi_modal_projector_state_dict = self.multi_modal_projector.state_dict()
+        for k, v in tensors.items():
+            if "multi_modal_projector" in k:
+                new_key = k.replace("multi_modal_projector.", "")
+                multi_modal_projector_state_dict[new_key] = v
+        self.multi_modal_projector.load_state_dict(
+            multi_modal_projector_state_dict, strict=True
+        )
+        print("Loaded pre-trained weights for projector")
+
+        # load lm --- account for blocks
+        joint_model_state_dict = self.joint_model.state_dict()
+        for k, v in tensors.items():
+            if "language_model.model" in k:
+                new_key = k.replace("language_model.model.", "")
+                # "self_attn.o_proj.weight" -> "self_attn.o_projs.0.weight"
+                if (
+                    "q_proj" in new_key
+                    or "v_proj" in new_key
+                    or "k_proj" in new_key
+                    or "o_proj" in new_key
+                ):
+                    new_key = new_key.replace("proj.", "projs.0.")
+                # "mlp.up_proj.weight" -> "mlp.0.up_proj.weight"
+                elif "mlp" in new_key:
+                    new_key = new_key.replace("mlp.", "mlp.0.")
+                # "input_layernorm.weight" -> "input_layernorms.0.weight"
+                elif "layernorm" in new_key:
+                    new_key = new_key.replace("layernorm.", "layernorms.0.")
+                # "norm.weight" -> "norm.weight"  # no change needed
+                elif "norm" in new_key:
+                    pass
+                # skip "embed_tokens"
+                elif "embed_tokens" in new_key:
+                    continue
+                joint_model_state_dict[new_key] = v
+        self.joint_model.load_state_dict(joint_model_state_dict, strict=False)
+        print("Loaded pre-trained weights for lm part of the joint model")
 
     def tie_weights(self):
         self.lm_head.weight = self.embed_tokens.weight
@@ -343,7 +398,9 @@ class VLA(nn.Module):
 if __name__ == "__main__":
     import argparse
 
+    import numpy as np
     from omegaconf import OmegaConf
+    from PIL import Image
     from transformers import AutoTokenizer
 
     from src.model.vla.processing import VLAProcessor
@@ -351,25 +408,37 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--text_only", action="store_true")
     parser.add_argument("--load_pretrained_weights", action="store_true")
+    parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
 
     config = OmegaConf.load("config/train/pg_oxe.yaml")
     if args.text_only:
         config.use_lm_head = True
-    model = VLA(config).to("cuda")
+    device = "cpu" if args.cpu else "cuda"
+    model = VLA(config).to(device)
     if args.load_pretrained_weights:
         model.load_pretrained_weights()
         if args.text_only:
             model.tie_weights()
 
-    # dummy image, text, proprio
+    # dummy image --- replace the first image with a real one
     bsz = 1 if args.text_only else 2
-    dummy_images = torch.randint(0, 256, (bsz, 3, 224, 224))
+    dummy_images = torch.randint(0, 256, (bsz, 3, 224, 224))  # not used if text_only
+    real_image_path = "media/maniskill_pp.png"
+    real_image = Image.open(real_image_path).convert("RGB")
+    real_image_t = torch.from_numpy(
+        np.array(real_image.resize((224, 224))).transpose(2, 0, 1)
+    )
+    dummy_images[0] = real_image_t
+
+    # text and proprio
     dummy_texts = [
-        "please generate a sequence of robot action ",
-        "this is a nice ",
+        "this image shows ",
+        "this is a nice portrait of London because ",
     ][:bsz]
-    dummy_proprio = torch.rand(bsz, config.cond_steps, config.action_dim).to("cuda")
+    dummy_proprio = torch.rand(bsz, config.cond_steps, config.action_dim).to(
+        "cuda"
+    )  # not used if text_only
 
     # tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
@@ -429,7 +498,7 @@ if __name__ == "__main__":
         actions = model.forward_action(
             input_ids=input_ids,
             pixel_values=pixel_values,
-            attention_mask=attention_mask,
+            attention_mask=attention_mask,  # only for image/text
             proprio=dummy_proprio,
         )
         print("Final action dimensions:", actions.shape)

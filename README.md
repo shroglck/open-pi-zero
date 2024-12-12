@@ -61,7 +61,7 @@ VLA with dummy img/text, proprio, and action, output flow matching action
 uv run python src/model/vla/model.py
 ```
 
-VLA with dummy img/text, proprio, and action, and output text
+VLA with dummy img/text, and output text
 ```console
 uv run python src/model/vla/model.py --text_only
 ```
