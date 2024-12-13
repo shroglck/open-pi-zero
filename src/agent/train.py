@@ -20,17 +20,9 @@ from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.model import VLA
 from src.model.vla.processing import VLAProcessor
 from src.utils.lr_scheduler import CosineAnnealingWarmupRestarts
-from src.utils.time import Timer, log_execution_time
+from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_time
 
 log = logging.getLogger(__name__)
-
-
-def log_allocated_gpu_memory(stage="loading model"):
-    if torch.cuda.is_available():
-        allocated_memory = torch.cuda.memory_allocated()
-        log.info(
-            f"Allocated GPU memory after {stage}: {allocated_memory/1024/1024/1024:.2f} GB"
-        )
 
 
 class TrainAgent:
@@ -87,7 +79,7 @@ class TrainAgent:
             model.load_pretrained_weights()
         if self.multi_gpu:
             dist.barrier()
-        log_allocated_gpu_memory()
+        log_allocated_gpu_memory(log, "loading model")
 
         # determine batch size and gradient accumulation steps
         self.gradient_accumulation_steps = (
@@ -213,7 +205,7 @@ class TrainAgent:
                 else:
                     model = self.model
                 if self.debug:
-                    log_allocated_gpu_memory(f"pre batch {batch_ind}")
+                    log_allocated_gpu_memory(log, f"pre batch {batch_ind}")
                 loss_train = model.loss(
                     pixel_values=pixel_values.to(self.device),
                     input_ids=input_ids.to(self.device),
@@ -222,20 +214,21 @@ class TrainAgent:
                     attention_mask=attention_mask.to(self.device),
                 )
                 if self.debug:
-                    log_allocated_gpu_memory(f"forward batch {batch_ind}")
+                    log_allocated_gpu_memory(log, f"forward batch {batch_ind}")
 
                 # update
                 loss_train.backward()
                 if self.debug:
-                    log_allocated_gpu_memory(f"backward batch {batch_ind}")
-                if (cnt_batch + 1) % self.gradient_accumulation_steps == 0:
+                    log_allocated_gpu_memory(log, f"backward batch {batch_ind}")
                     self.optimizer.step()
-                    if cnt_update_in_epoch <= 2 or self.debug:
-                        log_allocated_gpu_memory(f"optimizer step batch {batch_ind}")
+                    if self.debug:
+                        log_allocated_gpu_memory(
+                            log, f"optimizer step batch {batch_ind}"
+                        )
                     self.optimizer.zero_grad(set_to_none=True)
                     if self.debug:
                         log_allocated_gpu_memory(
-                            f"optimizer zero grad batch {batch_ind}"
+                            log, f"optimizer zero grad batch {batch_ind}"
                         )
                     cnt_update += 1
                     cnt_update_in_epoch += 1

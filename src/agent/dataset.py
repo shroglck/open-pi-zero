@@ -3,7 +3,7 @@ import tensorflow as tf
 from src.data.dataset import make_interleaved_dataset
 from src.data.dataset_torch import TorchRLDSDataset
 from src.data.oxe import make_oxe_dataset_kwargs_and_weights
-from src.utils.time import log_execution_time
+from src.utils.monitor import log_execution_time
 
 tf.config.set_visible_devices([], "GPU")
 

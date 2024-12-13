@@ -6,6 +6,7 @@ from PIL import Image
 from src.model.paligemma.gemma import KVCache, PaliGemmaForConditionalGeneration
 from src.model.paligemma.load import load_hf_model
 from src.model.paligemma.processing import PaliGemmaProcessor
+from src.utils.monitor import log_allocated_gpu_memory
 
 
 def move_inputs_to_device(model_inputs: dict, device: str):
@@ -131,6 +132,7 @@ def main(
     model = model.to(device).eval()
     time_end_load = time.time()
     print(f"Model loaded in {time_end_load - time_start_load:.2f} seconds")
+    log_allocated_gpu_memory(stage="loading model")
 
     num_image_tokens = model.config.vision_config.num_image_tokens
     image_size = model.config.vision_config.image_size

@@ -1,6 +1,15 @@
 import functools
 import time
 
+import torch
+
+
+def log_allocated_gpu_memory(log=None, stage="loading model"):
+    if torch.cuda.is_available():
+        allocated_memory = torch.cuda.memory_allocated()
+        msg = f"Allocated GPU memory after {stage}: {allocated_memory/1024/1024/1024:.2f} GB"
+        print(msg) if log is None else log.info(msg)
+
 
 def log_execution_time(logger=None):
     """Decorator to log the execution time of a function"""

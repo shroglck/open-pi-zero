@@ -11,7 +11,7 @@ from torch import nn
 from src.model.paligemma.utils import JointKVCache, KVCache
 from src.model.vla.modules import ActionTimeEncoder
 from src.model.vla.utils import sample_from_transformed_beta
-from src.utils.time import log_execution_time
+from src.utils.monitor import log_execution_time
 
 log = logging.getLogger(__name__)
 
