@@ -12,6 +12,8 @@ import tqdm
 
 import src.data.dlimp as dl
 
+log = logging.getLogger(__name__)
+
 
 def tree_map(fn: Callable, tree: dict) -> dict:
     """Maps a function over a nested dictionary."""
@@ -53,7 +55,7 @@ def sample_match_keys_uniform(d: dict, key_template: str):
     match_keys = [key for key in d.keys() if fnmatch(key, key_template)]
     if not match_keys:
         raise ValueError(f"No matching key found for {key_template}. Keys: {d.keys()}")
-    logging.info(f"Sampling uniformly across keys: {match_keys}")
+    log.info(f"Sampling uniformly across keys: {match_keys}")
     if len(match_keys) > 1:
         stacked = tf.stack([d[key] for key in match_keys])
         idx = tf.random.uniform((), 0, len(stacked) - 1, dtype=tf.int32)
@@ -113,13 +115,13 @@ def get_dataset_statistics(
 
     # check if cache file exists and load
     if tf.io.gfile.exists(path) and not force_recompute:
-        logging.info(f"Loading existing dataset statistics from {path}.")
+        log.info(f"Loading existing dataset statistics from {path}.")
         with tf.io.gfile.GFile(path, "r") as f:
             metadata = json.load(f)
         return metadata
 
     if os.path.exists(local_path) and not force_recompute:
-        logging.info(f"Loading existing dataset statistics from {local_path}.")
+        log.info(f"Loading existing dataset statistics from {local_path}.")
         with open(local_path, "r") as f:
             metadata = json.load(f)
         return metadata
@@ -139,7 +141,7 @@ def get_dataset_statistics(
     if cardinality == tf.data.INFINITE_CARDINALITY:
         raise ValueError("Cannot compute dataset statistics for infinite datasets.")
 
-    logging.info(
+    log.info(
         "Computing dataset statistics. This may take awhile, but should only need to happen "
         "once for each dataset."
     )
@@ -184,7 +186,7 @@ def get_dataset_statistics(
         with tf.io.gfile.GFile(path, "w") as f:
             json.dump(metadata, f)
     except tf.errors.PermissionDeniedError:
-        logging.warning(
+        log.warning(
             f"Could not write dataset statistics to {path}. "
             f"Writing to {local_path} instead."
         )

@@ -4,13 +4,13 @@ From: https://github.com/octo-models/octo/blob/main/octo/data/dataset.py
 """
 
 import json
+import logging
 from functools import partial
 from typing import Callable, Mapping, Optional, Sequence, Tuple, Union
 
 import numpy as np
 import tensorflow as tf
 import tensorflow_datasets as tfds
-from absl import logging
 
 import src.data.dlimp as dl
 from src.data import obs_transforms, traj_transforms
@@ -25,6 +25,8 @@ from src.data.utils.data_utils import (
     tree_map,
 )
 from src.utils.spec import ModuleSpec
+
+log = logging.getLogger(__name__)
 
 
 def apply_trajectory_transforms(
@@ -455,7 +457,7 @@ def make_dataset_from_rlds(
             num_parallel_calls,
         )
     else:
-        logging.warning(
+        log.warning(
             "Dataset normalization turned off -- set skip_norm=False to apply normalization."
         )
 
@@ -556,8 +558,8 @@ def make_interleaved_dataset(
     threads_per_dataset = allocate_threads(traj_transform_threads, sample_weights)
     reads_per_dataset = allocate_threads(traj_read_threads, sample_weights)
 
-    logging.info("Threads per dataset: %s", threads_per_dataset)
-    logging.info("Reads per dataset: %s", reads_per_dataset)
+    log.info("Threads per dataset: %s", threads_per_dataset)
+    log.info("Reads per dataset: %s", reads_per_dataset)
 
     # construct datasets
     datasets = []

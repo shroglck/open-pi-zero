@@ -6,10 +6,11 @@ Contains observation-level transforms used in the octo data pipeline. These tran
 from typing import Mapping, Optional, Tuple, Union
 
 import tensorflow as tf
-from absl import logging
+import logging
 
 import src.data.dlimp as dl
 
+log = logging.getLogger(__name__)
 
 def augment(
     obs: dict,
@@ -34,7 +35,7 @@ def augment(
         if name not in augment_kwargs:
             continue
         kwargs = augment_kwargs[name]
-        logging.debug(f"Augmenting image_{name} with kwargs {kwargs}")
+        log.debug(f"Augmenting image_{name} with kwargs {kwargs}")
         obs[f"image_{name}"] = tf.cond(
             obs["pad_mask_dict"][f"image_{name}"],
             lambda: dl.transforms.augment_image(
@@ -120,7 +121,7 @@ def decode_and_resize(
 
     for name in image_names:
         if name not in resize_size:
-            logging.warning(
+            log.warning(
                 f"No resize_size was provided for image_{name}. This will result in 1x1 "
                 "padding images, which may cause errors if you mix padding and non-padding images."
             )
@@ -143,7 +144,7 @@ def decode_and_resize(
 
     for name in depth_names:
         if name not in depth_resize_size:
-            logging.warning(
+            log.warning(
                 f"No depth_resize_size was provided for depth_{name}. This will result in 1x1 "
                 "padding depth images, which may cause errors if you mix padding and non-padding images."
             )

@@ -8,6 +8,8 @@ from src.data.oxe.oxe_standardization_transforms import OXE_STANDARDIZATION_TRAN
 from src.data.utils.data_utils import NormalizationType
 from src.utils.spec import ModuleSpec
 
+log = logging.getLogger(__name__)
+
 
 def make_oxe_dataset_kwargs(
     name: str,
@@ -134,7 +136,7 @@ def make_oxe_dataset_kwargs_and_weights(
             filtered_datasets.append((name, weight))
             included_dataset_names.append(name)
         else:
-            logging.warning(f"Skipping duplicate: {(name, weight)}.")
+            log.warning(f"Skipping duplicate: {(name, weight)}.")
     data_mix = filtered_datasets
 
     data_kwargs_list, weights = [], []
@@ -154,6 +156,6 @@ def make_oxe_dataset_kwargs_and_weights(
             )
             weights.append(weight)
         except ValueError as e:
-            logging.warning(f"Skipping {name} due to error: {e}")
+            log.warning(f"Skipping {name} due to error: {e}")
 
     return data_kwargs_list, weights
