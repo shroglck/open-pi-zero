@@ -52,7 +52,6 @@ def test_inference(
 
     for _ in range(max_tokens_to_generate):
         # Get the model outputs
-        # TODO: remove the labels
         outputs = model(
             input_ids=input_ids,
             pixel_values=pixel_values,
@@ -130,9 +129,12 @@ def main(
     time_start_load = time.time()
     model, tokenizer = load_hf_model(model_path, device)
     model = model.to(device).eval()
+    # cast
+    model = model.to(torch.bfloat16)
     time_end_load = time.time()
     print(f"Model loaded in {time_end_load - time_start_load:.2f} seconds")
     log_allocated_gpu_memory(stage="loading model")
+    print(f"lm head dtype: {model.language_model.lm_head.weight.dtype}")
 
     num_image_tokens = model.config.vision_config.num_image_tokens
     image_size = model.config.vision_config.image_size

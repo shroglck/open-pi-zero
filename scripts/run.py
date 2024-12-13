@@ -9,8 +9,12 @@ import os
 import sys
 
 import hydra
+import pretty_errors
 import torch
 from omegaconf import OmegaConf, open_dict
+
+# dummy
+print(pretty_errors.__version__)
 
 # allows arbitrary python code execution in configs using the ${eval:''} resolver
 OmegaConf.register_new_resolver("eval", eval, replace=True)

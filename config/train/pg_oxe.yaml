@@ -34,15 +34,13 @@ n_epochs: 3
 log_freq: 100
 save_model_batch_freq: 10000000
 save_model_epoch_freq: 1
-global_batch_size: 128
-per_device_batch_size: 1
-quantization: # TODO
-learning_rate: 1e-4
+learning_rate: 2e-5
 lr_scheduler:
   first_cycle_steps: ${n_epochs}
   min_lr: ${learning_rate}
   warmup_steps: 0
 weight_decay: 0
+max_grad_norm: 1.0
 
 num_inference_steps: 10
 final_action_clip_value:

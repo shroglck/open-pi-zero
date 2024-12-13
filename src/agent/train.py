@@ -7,6 +7,7 @@ import logging
 import os
 import random
 
+import bitsandbytes as bnb
 import einops
 import numpy as np
 import torch
@@ -40,6 +41,7 @@ class TrainAgent:
 
         # training params
         self.n_epochs = cfg.n_epochs
+        self.max_grad_norm = cfg.max_grad_norm
         self.log_freq = cfg.log_freq
         self.save_model_batch_freq = cfg.save_model_batch_freq
         self.save_model_epoch_freq = cfg.save_model_epoch_freq
@@ -64,12 +66,12 @@ class TrainAgent:
             import torch.distributed as dist
             from torch.nn.parallel import DistributedDataParallel as DDP
 
-            self.model = self.model.to(self.gpu_id)
+            self.model = self.model.to(self.gpu_id).to(torch.bfloat16)
             self.model = DDP(self.model, device_ids=[self.gpu_id])
             self.device = torch.device(f"cuda:{self.gpu_id}")
             dist.barrier()
         else:
-            self.model = self.model.to(cfg.device)
+            self.model = self.model.to(cfg.device).to(torch.bfloat16)
             self.device = torch.device(cfg.device)
         if self.multi_gpu:
             model = self.model.module
@@ -82,7 +84,7 @@ class TrainAgent:
         log_allocated_gpu_memory(log, "loading model")
 
         # determine batch size and gradient accumulation steps
-        self.gradient_accumulation_steps = (
+        self.grad_accumulation_steps = (
             cfg.global_batch_size // cfg.per_device_batch_size // self.num_gpus
         )
 
@@ -114,21 +116,21 @@ class TrainAgent:
         )
         log.info(f"Global batch size: {cfg.global_batch_size}")
         log.info(f"Per device batch size: {cfg.per_device_batch_size}")
-        log.info(f"Gradient accumulation steps: {self.gradient_accumulation_steps}")
+        log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
         log.info(f"Number of batches per epoch: {num_batch_per_epoch}")
 
         # optimizer
-        trained_parameters = (
+        self.trained_parameters = (
             # list(mode.embed_tokens.parameters())
             list(model.vision_tower.parameters())
             + list(model.multi_modal_projector.parameters())
-            # + list(model.joint_model.parameters())
+            + list(model.joint_model.parameters())
             + list(model.action_time_encoder.parameters())
             + list(model.proprio_encoder.parameters())
             + list(model.action_decoder.parameters())
         )
-        self.optimizer = torch.optim.AdamW(
-            trained_parameters,
+        self.optimizer = bnb.optim.AdamW8bit(
+            self.trained_parameters,
             lr=cfg.learning_rate,
             weight_decay=cfg.weight_decay,
         )
@@ -140,6 +142,17 @@ class TrainAgent:
             min_lr=cfg.lr_scheduler.min_lr,
             warmup_steps=cfg.lr_scheduler.warmup_steps,
             gamma=1.0,
+        )
+        num_trained_parameters_in_billions = (
+            sum(
+                p.numel()
+                for group in self.optimizer.param_groups
+                for p in group["params"]
+            )
+            / 1e9
+        )
+        log.info(
+            f"Number of trained parameters: {num_trained_parameters_in_billions:.3f}B"
         )
 
     def run(self):
@@ -164,63 +177,75 @@ class TrainAgent:
                 """
 
                 # extract and debug
-                images = batch["observation"]["image_primary"]
-                proprios = batch["observation"]["proprio"]
-                actions = batch["action"].squeeze(1)  # remove the time dimension
-                texts = [
-                    text.decode("utf-8")
-                    for text in batch["task"]["language_instruction"]
-                ]
-                if self.debug and batch_ind == 0:
-                    log.info(f"{self.gpu_id} device {self.device}")
-                    log.info(f"{self.gpu_id} texts {texts}")
-                    log.info(f"{self.gpu_id} images {images.shape}")
-                    log.info(
-                        f"{self.gpu_id} actions {actions.shape} {actions.mean()} {actions.std()} {actions.max()} {actions.min()}"
+                with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
+                    images = batch["observation"]["image_primary"]
+                    proprios = batch["observation"]["proprio"]
+                    actions = batch["action"].squeeze(1)  # remove the time dimension
+                    texts = [
+                        text.decode("utf-8")
+                        for text in batch["task"]["language_instruction"]
+                    ]
+                    if self.debug and batch_ind == 0:
+                        log.info(f"{self.gpu_id} device {self.device}")
+                        log.info(f"{self.gpu_id} texts {texts}")
+                        log.info(f"{self.gpu_id} images {images.shape}")
+                        log.info(
+                            f"{self.gpu_id} actions {actions.shape} {actions.mean()} {actions.std()} {actions.max()} {actions.min()}"
+                        )
+                        log.info(
+                            f"{self.gpu_id} proprios {proprios.shape} {proprios.mean()} {proprios.std()} {proprios.max()} {proprios.min()}"
+                        )
+
+                        # Save an image for debugging
+                        image = images[0, 0].clone().to("cpu")
+                        image = Image.fromarray(image.numpy())
+                        image.save(
+                            os.path.join(self.logdir, f"image_{self.gpu_id}.png")
+                        )
+
+                    # process image and text
+                    images = einops.rearrange(
+                        images, "B T H W C -> B (T C) H W"
+                    )  # remove cond_steps dimension
+                    model_inputs = self.processor(text=texts, images=images)
+                    pixel_values = model_inputs["pixel_values"]
+                    input_ids = model_inputs["input_ids"]
+                    attention_mask = model_inputs[
+                        "attention_mask"
+                    ]  # with padding if bsz > 1
+
+                    # forward
+                    self.model.train()
+                    if self.multi_gpu:
+                        model = self.model.module
+                    else:
+                        model = self.model
+                    if self.debug:
+                        log_allocated_gpu_memory(log, f"pre batch {batch_ind}")
+                    loss_train = model.loss(
+                        pixel_values=pixel_values.to(self.device),
+                        input_ids=input_ids.to(self.device),
+                        proprios=proprios.to(self.device),
+                        actions=actions.to(self.device),
+                        attention_mask=attention_mask.to(self.device),
                     )
-                    log.info(
-                        f"{self.gpu_id} proprios {proprios.shape} {proprios.mean()} {proprios.std()} {proprios.max()} {proprios.min()}"
-                    )
-
-                    # Save an image for debugging
-                    image = images[0, 0].clone().to("cpu")
-                    image = Image.fromarray(image.numpy())
-                    image.save(os.path.join(self.logdir, f"image_{self.gpu_id}.png"))
-
-                # process image and text
-                images = einops.rearrange(
-                    images, "B T H W C -> B (T C) H W"
-                )  # remove cond_steps dimension
-                model_inputs = self.processor(text=texts, images=images)
-                pixel_values = model_inputs["pixel_values"]
-                input_ids = model_inputs["input_ids"]
-                attention_mask = model_inputs[
-                    "attention_mask"
-                ]  # with padding if bsz > 1
-
-                # forward
-                self.model.train()
-                if self.multi_gpu:
-                    model = self.model.module
-                else:
-                    model = self.model
-                if self.debug:
-                    log_allocated_gpu_memory(log, f"pre batch {batch_ind}")
-                loss_train = model.loss(
-                    pixel_values=pixel_values.to(self.device),
-                    input_ids=input_ids.to(self.device),
-                    proprios=proprios.to(self.device),
-                    actions=actions.to(self.device),
-                    attention_mask=attention_mask.to(self.device),
-                )
                 if self.debug:
                     log_allocated_gpu_memory(log, f"forward batch {batch_ind}")
 
                 # update
-                loss_train.backward()
+                normalized_loss = loss_train / self.grad_accumulation_steps
+                normalized_loss.backward()
                 if self.debug:
                     log_allocated_gpu_memory(log, f"backward batch {batch_ind}")
+                if (cnt_batch + 1) % self.grad_accumulation_steps == 0:
+                    torch.nn.utils.clip_grad_norm_(
+                        self.trained_parameters,
+                        max_norm=self.max_grad_norm,
+                    )
                     self.optimizer.step()
+                    # lr schedule
+                    if self.gpu_id == 0:
+                        self.lr_scheduler.step()
                     if self.debug:
                         log_allocated_gpu_memory(
                             log, f"optimizer step batch {batch_ind}"
@@ -233,11 +258,8 @@ class TrainAgent:
                     cnt_update += 1
                     cnt_update_in_epoch += 1
 
-                # TODO: validation
+                # TODO: validation with action accuracy
                 loss_val = None
-
-                # clear cache
-                torch.cuda.empty_cache()
 
                 # log loss
                 if self.gpu_id == 0 and cnt_batch % self.log_freq == 0:
@@ -247,15 +269,12 @@ class TrainAgent:
                     if self.use_wandb and self.gpu_id == 0:
                         wandb_metrics = {
                             "loss - train": loss_train,
-                            "Gradient steps": cnt_update,
+                            "gradient steps": cnt_update,
+                            "lr": self.optimizer.param_groups[0]["lr"],
                         }
                         if loss_val is not None:
                             wandb_metrics["loss - val"] = loss_val
                         wandb.log(wandb_metrics, step=cnt_batch, commit=True)
-
-                # update lr # TODO: ddp affects? if not synced
-                if self.gpu_id == 0:
-                    self.lr_scheduler.step()
 
                 # Count
                 cnt_batch += 1
