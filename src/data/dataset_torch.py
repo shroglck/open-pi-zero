@@ -37,11 +37,12 @@ class TorchRLDSDataset(torch.utils.data.IterableDataset):
         lengths = np.array(
             [
                 stats["num_transitions"]
-                for stats in self._rlds_dataset.dataset_statistics
-            ]
+                for stats in self._rlds_dataset.dataset_statistics.values()
+            ],
+            dtype=float,
         )
         if hasattr(self._rlds_dataset, "sample_weights"):
-            lengths *= np.array(self._rlds_dataset.sample_weights)
+            lengths *= self._rlds_dataset.sample_weights
         total_len = lengths.sum()
         if self._is_train:
             return int(0.95 * total_len)
@@ -52,11 +53,15 @@ class TorchRLDSDataset(torch.utils.data.IterableDataset):
 if __name__ == "__main__":
     import argparse
 
+    import einops
+
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--data_path", type=str, default="/n/fs/llm-unc/data/resize_224"
     )
     parser.add_argument("--mix", type=str, default="oxe_simple")
+    parser.add_argument("--camera_views", nargs="*", default=("primary",))
+    parser.add_argument("--load_proprio", action="store_true")
     args = parser.parse_args()
 
     # config
@@ -64,7 +69,10 @@ if __name__ == "__main__":
     dataset_kwargs_list, sample_weights = make_oxe_dataset_kwargs_and_weights(
         args.mix,
         args.data_path,
-        load_camera_views=("primary", "wrist"),
+        load_depth=False,
+        load_language=True,
+        load_proprio=args.load_proprio,
+        load_camera_views=args.camera_views,
     )
 
     # dataset
@@ -80,11 +88,15 @@ if __name__ == "__main__":
             window_size=2,
             action_horizon=4,
             subsample_length=100,
+            skip_unlabeled=True,  # skip ones without language annotation
         ),
         frame_transform_kwargs=dict(
             image_augment_kwargs={
                 "primary": dict(
-                    random_resized_crop=dict(scale=[0.8, 1.0], ratio=[0.9, 1.1]),
+                    random_resized_crop=dict(
+                        scale=[0.8, 1.0],
+                        ratio=[0.9, 1.1],
+                    ),
                     random_brightness=[0.1],
                     random_contrast=[0.9, 1.1],
                     random_saturation=[0.9, 1.1],
@@ -111,8 +123,8 @@ if __name__ == "__main__":
                 ),
             },
             resize_size=dict(
-                primary=(256, 256),
-                wrist=(128, 128),
+                primary=(224, 224),
+                wrist=(224, 224),
             ),
             num_parallel_calls=200,
         ),
@@ -122,6 +134,7 @@ if __name__ == "__main__":
 
     # convert for torch
     pytorch_dataset = TorchRLDSDataset(dataset)
+    print("Dataset length:", len(pytorch_dataset))
     dataloader = DataLoader(
         pytorch_dataset,
         batch_size=16,
@@ -133,11 +146,18 @@ if __name__ == "__main__":
     print("Starting dataloader")
     for i, _sample in tqdm.tqdm(enumerate(dataloader)):
         # _sample: dict with keys 'observation', 'task', 'action', 'dataset_name', 'action_pad_mask'
-        # observation: 'image_primary' (torch.Size([16, 2, 256, 256, 3]), 'image_wrist', 'timestep' (torch.Size([16, 2])), 'pad_mask_dict', 'timestep_pad_mask', 'task_completed' (torch.Size([16, 2, 4])
+        # observation: 'image_primary' (torch.Size([16, 2, 256, 256, 3]), 'image_wrist', 'timestep' (torch.Size([16, 2])), 'pad_mask_dict', 'timestep_pad_mask', 'task_completed' (torch.Size([16, 2, 4]), 'proprio' (fractal: torch.Size([16, 2, 8]))
         # task: 'language_instruction', 'pad_mask_dict', 'image_primary', 'image_wrist', 'timestep' (torch.Size([16]))
         # action (torch.Size([16, 2, 4, 7])
         # dataset_name
         # action_pad_mask (torch.Size([16, 2, 4, 7]))
+        images = _sample["observation"]["image_primary"]
+        images = einops.rearrange(
+            images, "B T H W C -> B (T C) H W"
+        )  # remove cond_steps dimension
+        texts = [
+            text.decode("utf-8") for text in _sample["task"]["language_instruction"]
+        ]
         if i == 100:
             break
     load_time = time.time()

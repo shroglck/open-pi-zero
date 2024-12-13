@@ -6,28 +6,56 @@ hydra:
 _target_: src.agent.train.TrainAgent
 
 logdir: ${oc.env:VLA_LOG_DIR}/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
-seed: 42
-name: train_vla
+name: paligemma_${data.dataset_mix}_tp${horizon_steps}
 device: cuda
-
-dataset_mix: oxe_simple
-data_path: /n/fs/llm-unc/data/resize_224
+seed: 42
 pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
+load_pretrained_weights: True
+debug: False
+
+data:
+  dataset_mix: bridge
+  data_path: /n/fs/llm-unc/data/resize_224
+  window_size: ${cond_steps}
+  action_horizon: ${horizon_steps}
+  skip_unlabeled: True
+  load_proprio: True
+  shuffle_buffer_size: 500000
+  num_parallel_calls: 200
+  traj_transform_threads: 48
+  traj_read_threads: 48
+
+wandb:
+  entity: ${oc.env:VLA_WANDB_ENTITY}
+  project: train-vla
+  run: ${now:%H-%M-%S}_${name}
+
+n_epochs: 3
+log_freq: 100
+save_model_batch_freq: 10000000
+save_model_epoch_freq: 1
+global_batch_size: 128
+per_device_batch_size: 1
+quantization: # TODO
+learning_rate: 1e-4
+lr_scheduler:
+  first_cycle_steps: ${n_epochs}
+  min_lr: ${learning_rate}
+  warmup_steps: 0
+weight_decay: 0
 
 num_inference_steps: 10
 final_action_clip_value:
 
 cond_steps: 1
 horizon_steps: 4
-image_shape: [3, 224, 224]
-action_dim: 20
-proprio_dim: 20
+action_dim: 7 # EEF_POS
+proprio_dim: 7  # POS_EULER
 
 image_token_index: 257152
 ignore_index: -100
 vocab_size: 257216
 pad_token_id: 0
-use_lm_head: False
 max_seq_len: 512  # image + text
 
 image_text_hidden_size: 2048  # gemma
@@ -42,7 +70,7 @@ vision:
     num_hidden_layers: 27
     num_attention_heads: 16
     num_channels: 3
-    image_size: ${image_shape[1]}
+    image_size: 224
     patch_size: 14
     layer_norm_eps: 1e-6
     attention_dropout: 0.0

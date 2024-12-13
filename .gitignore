@@ -4,6 +4,8 @@ temp/
 .ruff_cache/
 launch/
 logs/
+results/
+wandb/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

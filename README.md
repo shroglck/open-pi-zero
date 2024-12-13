@@ -1,13 +1,25 @@
 # pg-vla
 
 ## Installation
-Install uv
-```console
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-The dependencies will be configured automatically when running any `uv run ...` command.
+Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and the dependencies will be configured automatically when running any `uv run ...` command. Or `pip install -e .`
 
-### Test PaliGemma text generation
+### Tests
+Block attention with dummy embeddings for img/text, proprio, and action
+```console
+uv run python src/model/vla/modules.py
+```
+
+VLA with dummy img/text, proprio, and action, output flow matching action
+```console
+uv run python src/model/vla/model.py
+```
+
+VLA with dummy img/text, and output text
+```console
+uv run python src/model/vla/model.py --text_only
+```
+
+Text generation with original implementaton
 ```console
 git clone https://huggingface.co/google/paligemma2-3b-pt-224    # at desired cache location
 uv run python scripts/tests/run_paligemma.py \
@@ -48,23 +60,13 @@ uv run python src/data/dataloader.py \
     --mix=oxe_simple
 ```
 
-## Model
+## Training
 
-### Tests
-Block attention with dummy embeddings for img/text, proprio, and action
+See launch file
 ```console
-uv run python src/model/vla/modules.py
+uv run torchrun --nnodes=1 --nproc_per_node=$NUM_GPU --rdzv_id=100 --rdzv_backend=c10d --max-restarts=1 --standalone --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT scripts/run.py
 ```
 
-VLA with dummy img/text, proprio, and action, output flow matching action
-```console
-uv run python src/model/vla/model.py
-```
-
-VLA with dummy img/text, and output text
-```console
-uv run python src/model/vla/model.py --text_only
-```
 
 ## Resources
 

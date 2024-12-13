@@ -24,7 +24,6 @@ class VLA(nn.Module):
         self.vocab_size = cfg.vocab_size
         self.pad_token_id = cfg.pad_token_id
         self.image_token_index = cfg.image_token_index
-        self.use_lm_head = cfg.use_lm_head
         self.num_proprio_tokens = cfg.cond_steps
         self.num_action_tokens = cfg.horizon_steps
         self.image_text_hidden_size = cfg.image_text_hidden_size
@@ -34,6 +33,7 @@ class VLA(nn.Module):
             0,
             1,
         ]  # do not cache action since not autoregressive, which is the last block of the three
+        self.use_lm_head = cfg.get("use_lm_head", False)
 
         # Action parameterization
         self.num_inference_steps = cfg.num_inference_steps

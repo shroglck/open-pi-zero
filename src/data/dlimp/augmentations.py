@@ -118,10 +118,10 @@ def augment_image(
             [2], seed, maxval=tf.dtypes.int32.max, dtype=tf.int32
         )
         if op in augment_kwargs:
-            # if hasattr(augment_kwargs[op], "items"):
-            image = AUGMENT_OPS[op](image, seed=seed, **augment_kwargs[op])
-            # else:
-            #     image = AUGMENT_OPS[op](image, seed=seed, *augment_kwargs[op])
+            if hasattr(augment_kwargs[op], "items"):
+                image = AUGMENT_OPS[op](image, seed=seed, **augment_kwargs[op])
+            else:
+                image = AUGMENT_OPS[op](image, seed=seed, *augment_kwargs[op])
         else:
             image = AUGMENT_OPS[op](image, seed=seed)
         # float images are expected to be in [0, 1]
