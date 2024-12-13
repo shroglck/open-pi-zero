@@ -248,6 +248,7 @@ def make_dataset_from_rlds(
     data_dir: str,
     *,
     train: bool,
+    split: Optional[str] = None,
     standardize_fn: Optional[ModuleSpec] = None,
     shuffle: bool = True,
     image_obs_keys: Mapping[str, Optional[str]] = {},
@@ -263,7 +264,7 @@ def make_dataset_from_rlds(
     ignore_errors: bool = False,
     num_parallel_reads: int = tf.data.AUTOTUNE,
     num_parallel_calls: int = tf.data.AUTOTUNE,
-) -> Tuple[dl.DLataset, dict]:
+) -> Tuple[dl.DLataset, dict, int]:
     """This function is responsible for loading a specific RLDS dataset from storage and getting it into a
     standardized format. Yields a dataset of trajectories. Does not include CPU-intensive operations.
 
@@ -430,14 +431,16 @@ def make_dataset_from_rlds(
         dataset_statistics["action"]["mask"] = np.array(action_normalization_mask)
 
     # construct the dataset
-    if "val" not in builder.info.splits:
-        split = "train[:95%]" if train else "train[95%:]"
-    else:
-        split = "train" if train else "val"
+    if split is None:
+        if "val" not in builder.info.splits:
+            split = "train[:95%]" if train else "train[95%:]"
+        else:
+            split = "train" if train else "val"
 
     dataset = dl.DLataset.from_rlds(
         builder, split=split, shuffle=shuffle, num_parallel_reads=num_parallel_reads
     )
+    dataset_len = len(dataset)
     for filter_fcn_spec in filter_functions:
         dataset = dataset.filter(ModuleSpec.instantiate(filter_fcn_spec))
     if ignore_errors:
@@ -461,37 +464,7 @@ def make_dataset_from_rlds(
             "Dataset normalization turned off -- set skip_norm=False to apply normalization."
         )
 
-    return dataset, dataset_statistics
-
-
-def make_single_dataset(
-    dataset_kwargs: dict,
-    *,
-    train: bool,
-    traj_transform_kwargs: dict = {},
-    frame_transform_kwargs: dict = {},
-) -> dl.DLataset:
-    """Creates a single dataset from kwargs. Returns a dataset of trajectories.
-
-    Args:
-        dataset_kwargs: kwargs passed to `make_dataset_from_rlds` that are dataset-specific.
-        train: whether this is a training or validation dataset.
-        traj_transform_kwargs: kwargs passed to 'apply_trajectory_transforms'.
-        frame_transform_kwargs: kwargs passed to 'get_frame_transforms'.
-    """
-    dataset, dataset_statistics = make_dataset_from_rlds(
-        **dataset_kwargs,
-        train=train,
-    )
-    dataset = apply_trajectory_transforms(dataset, **traj_transform_kwargs, train=train)
-    dataset = apply_frame_transforms(dataset, **frame_transform_kwargs, train=train)
-
-    # this seems to reduce memory usage without affecting speed
-    dataset = dataset.with_ram_budget(1)
-
-    # save for later
-    dataset.dataset_statistics = dataset_statistics
-    return dataset
+    return dataset, dataset_statistics, dataset_len
 
 
 def make_interleaved_dataset(
@@ -502,8 +475,9 @@ def make_interleaved_dataset(
     shuffle_buffer_size: int,
     traj_transform_kwargs: dict = {},
     frame_transform_kwargs: dict = {},
+    split: Optional[str] = None,
     batch_size: Optional[int] = None,
-    balance_weights: bool = False,
+    balance_weights: bool = True,
     traj_transform_threads: Optional[int] = None,
     traj_read_threads: Optional[int] = None,
 ) -> dl.DLataset:
@@ -520,6 +494,7 @@ def make_interleaved_dataset(
             overidden using `traj_transform_threads`.
         frame_transform_kwargs: kwargs passed to `apply_frame_transforms`.
         batch_size: batch size, if not provided output is not batched.
+        split: if provided, the split to use for each dataset. If None, defaults to "train[:64]" for training. Only support the same split for all datasets right now
         balance_weights: if True, the sample weights are multiplied by the number of frames in each dataset.
             This makes it so that, if all the sample weights are equal, one full iteration through the interleaved
             dataset will correspond to one full iteration through each individual dataset (only in expectation,
@@ -537,17 +512,18 @@ def make_interleaved_dataset(
             f"sample_weights must be None or have length {len(dataset_kwargs_list)}."
         )
 
-    # go through datasets once to get sizes
+    # go through datasets once to get stats --- here the length is using the full split
     dataset_sizes = []
     all_dataset_statistics = {}
     for dataset_kwargs in dataset_kwargs_list:
-        _, dataset_statistics = make_dataset_from_rlds(**dataset_kwargs, train=train)
+        _, dataset_statistics, _ = make_dataset_from_rlds(**dataset_kwargs, train=train)
         dataset_sizes.append(dataset_statistics["num_transitions"])
         assert (
             dataset_kwargs["name"] not in all_dataset_statistics
         ), f"Duplicate name {dataset_kwargs['name']}"
         all_dataset_statistics[dataset_kwargs["name"]] = dataset_statistics
 
+    # TODO: account for actual dataset size instead of using full split length
     # balance and normalize weights
     if balance_weights:
         sample_weights = np.array(sample_weights) * np.array(dataset_sizes)
@@ -563,19 +539,22 @@ def make_interleaved_dataset(
 
     # construct datasets
     datasets = []
+    dataset_true_lengths = []  # do not use dataset statistics as it assumes full split
     for dataset_kwargs, threads, reads in zip(
         dataset_kwargs_list,
         threads_per_dataset,
         reads_per_dataset,
         strict=False,
     ):
-        dataset, _ = make_dataset_from_rlds(
+        dataset, _, dataset_len = make_dataset_from_rlds(
             **dataset_kwargs,
             train=train,
+            split=split,
             num_parallel_calls=threads,
             num_parallel_reads=reads,
             dataset_statistics=all_dataset_statistics[dataset_kwargs["name"]],
         )
+        dataset_true_lengths.append(dataset_len)
         dataset = apply_trajectory_transforms(
             dataset.repeat(),
             **traj_transform_kwargs,
@@ -604,4 +583,6 @@ def make_interleaved_dataset(
     # save for later
     dataset.dataset_statistics = all_dataset_statistics
     dataset.sample_weights = sample_weights
+    dataset.true_lengths = dataset_true_lengths
+    dataset.true_total_length = sum(dataset_true_lengths)
     return dataset

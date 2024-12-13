@@ -6,7 +6,6 @@ This example shows how to use the `src.data` dataloader with PyTorch by wrapping
 
 import time
 
-import numpy as np
 import tensorflow as tf
 import torch
 import tqdm
@@ -34,20 +33,22 @@ class TorchRLDSDataset(torch.utils.data.IterableDataset):
             yield sample
 
     def __len__(self):
-        lengths = np.array(
-            [
-                stats["num_transitions"]
-                for stats in self._rlds_dataset.dataset_statistics.values()
-            ],
-            dtype=float,
-        )
-        if hasattr(self._rlds_dataset, "sample_weights"):
-            lengths *= self._rlds_dataset.sample_weights
-        total_len = lengths.sum()
-        if self._is_train:
-            return int(0.95 * total_len)
-        else:
-            return int(0.05 * total_len)
+        # TODO: account for sample weights?
+        return self._rlds_dataset.true_total_length
+        # lengths = np.array(
+        #     [
+        #         stats["num_transitions"]
+        #         for stats in self._rlds_dataset.dataset_statistics.values()
+        #     ],
+        #     dtype=float,
+        # )
+        # if hasattr(self._rlds_dataset, "sample_weights"):
+        #     lengths *= self._rlds_dataset.sample_weights
+        # total_len = lengths.sum()
+        # if self._is_train:
+        #     return int(0.95 * total_len)
+        # else:
+        #     return int(0.05 * total_len)
 
 
 if __name__ == "__main__":
@@ -59,7 +60,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--data_path", type=str, default="/n/fs/llm-unc/data/resize_224"
     )
-    parser.add_argument("--mix", type=str, default="oxe_simple")
+    parser.add_argument("--mix", type=str, default="bridge")
     parser.add_argument("--camera_views", nargs="*", default=("primary",))
     parser.add_argument("--load_proprio", action="store_true")
     args = parser.parse_args()
@@ -80,6 +81,7 @@ if __name__ == "__main__":
         dataset_kwargs_list,
         sample_weights,
         train=True,
+        split="train[:64]",
         shuffle_buffer_size=1000,  # change to 500k for training, large shuffle buffers are important, but adjust to your RAM
         batch_size=None,  # batching will be handles in PyTorch Dataloader object
         balance_weights=True,
@@ -144,7 +146,8 @@ if __name__ == "__main__":
     print(f"Preparation time: {prep_time - start_time:.2f}s")
 
     print("Starting dataloader")
-    for i, _sample in tqdm.tqdm(enumerate(dataloader)):
+    cnt_batch = 0
+    for _, _sample in tqdm.tqdm(enumerate(dataloader)):
         # _sample: dict with keys 'observation', 'task', 'action', 'dataset_name', 'action_pad_mask'
         # observation: 'image_primary' (torch.Size([16, 2, 256, 256, 3]), 'image_wrist', 'timestep' (torch.Size([16, 2])), 'pad_mask_dict', 'timestep_pad_mask', 'task_completed' (torch.Size([16, 2, 4]), 'proprio' (fractal: torch.Size([16, 2, 8]))
         # task: 'language_instruction', 'pad_mask_dict', 'image_primary', 'image_wrist', 'timestep' (torch.Size([16]))
@@ -158,7 +161,6 @@ if __name__ == "__main__":
         texts = [
             text.decode("utf-8") for text in _sample["task"]["language_instruction"]
         ]
-        if i == 100:
-            break
+        cnt_batch += 1
     load_time = time.time()
-    print(f"Iterative over 100 batches: {load_time - prep_time:.2f}s")
+    print(f"Iterative over {cnt_batch} batches: {load_time - prep_time:.2f}s")
