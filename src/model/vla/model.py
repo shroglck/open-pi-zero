@@ -56,6 +56,7 @@ class VLA(nn.Module):
             self.image_text_hidden_size,
             self.pad_token_id,
         )
+        self.embed_tokens.weight.requires_grad = False
 
         # Vision
         self.vision_tower = hydra.utils.instantiate(cfg.vision)
