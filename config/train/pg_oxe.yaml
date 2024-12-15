@@ -21,7 +21,7 @@ data:
   action_horizon: ${horizon_steps}
   skip_unlabeled: True
   load_proprio: True
-  shuffle_buffer_size: 500000
+  shuffle_buffer_size: 50000
   num_parallel_calls: 100
   traj_transform_threads: 10
   traj_read_threads: 10
@@ -32,17 +32,23 @@ wandb:
   run: ${now:%H-%M-%S}_${name}
 
 n_epochs: 10
-log_freq: 8
+log_freq: 15
 save_model_batch_freq: 10000000
 save_model_epoch_freq: 1
-global_batch_size: 3840
+global_batch_size: 1440
 per_device_batch_size: 12
-learning_rate: 2e-5
-lr_scheduler:
+action_lr: 3e-4
+vlm_lr: 5e-6
+action_lr_scheduler:
   first_cycle_steps: 10000000
   min_lr: 1e-8
-  warmup_steps: 500
-weight_decay: 0
+  warmup_steps: 1000
+vlm_lr_scheduler:
+  first_cycle_steps: 10000000
+  min_lr: 1e-8
+  warmup_steps: 1000
+action_weight_decay: 0
+vlm_weight_decay: 0
 max_grad_norm: 1.0
 
 num_inference_steps: 10

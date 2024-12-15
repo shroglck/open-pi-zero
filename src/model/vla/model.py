@@ -110,6 +110,36 @@ class VLA(nn.Module):
             + action_expert_parameters
         )
 
+    @property
+    def pretrained_parameters(self):
+        pretrained_parameters = []
+        pretrained_names = []
+        last_hidden_layer_index = self.joint_model.num_hidden_layers - 1
+        for name, param in self.joint_model.named_parameters():
+            if not (
+                "q_projs.2" in name
+                or "k_projs.2" in name
+                or "v_projs.2" in name
+                or "o_projs.2" in name
+                or "mlp.2" in name
+                or "layernorms.2" in name
+                or "layernorm.2" in name
+                or "action_norm" in name
+                or name == "norm.weight"  # no need to tune final norm
+                or f"{last_hidden_layer_index}.post" in name
+                or f"{last_hidden_layer_index}.mlp" in name
+                or f"{last_hidden_layer_index}.self_attn.o_projs" in name
+                or f"{last_hidden_layer_index}.self_attn.v_projs"
+                in name  # no need to tune part of last layer
+            ):
+                pretrained_parameters.append(param)
+                pretrained_names.append(name)
+        return (
+            list(self.vision_tower.parameters())
+            + list(self.multi_modal_projector.parameters())
+            + pretrained_parameters
+        )
+
     @log_execution_time()
     def load_pretrained_weights(self):
         """vision, projector, lm from paligemma"""

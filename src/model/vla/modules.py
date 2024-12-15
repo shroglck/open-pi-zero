@@ -17,6 +17,7 @@ class JointModel(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.config = config
+        self.num_hidden_layers = config.num_hidden_layers
         (
             self.image_text_hidden_size,
             self.proprio_hidden_size,

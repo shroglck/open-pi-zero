@@ -123,43 +123,61 @@ class TrainAgent:
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
         log.info(f"Number of batches per epoch: {num_batch_per_epoch}")
 
-        # optimizer
-        if cfg.train_action_only:  # 0.315B
-            self.trained_parameters = model.action_expert_parameters
-        else:
-            self.trained_parameters = (
-                list(model.vision_tower.parameters())
-                + list(model.multi_modal_projector.parameters())
-                + list(model.joint_model.parameters())
-                + list(model.action_time_encoder.parameters())
-                + list(model.proprio_encoder.parameters())
-                + list(model.action_decoder.parameters())
-            )
-        self.optimizer = bnb.optim.AdamW8bit(
-            self.trained_parameters,
-            lr=cfg.learning_rate,
-            weight_decay=cfg.weight_decay,
+        # optimizer - action only: 0.315B, rest: 2.359B
+        self.train_action_only = cfg.train_action_only
+        self.trained_parameters = model.action_expert_parameters
+        self.action_optimizer = bnb.optim.AdamW8bit(
+            model.action_expert_parameters,
+            lr=cfg.action_lr,
+            weight_decay=cfg.action_weight_decay,
         )
-        self.lr_scheduler = CosineAnnealingWarmupRestarts(
-            self.optimizer,
-            first_cycle_steps=cfg.lr_scheduler.first_cycle_steps,
+        self.action_lr_scheduler = CosineAnnealingWarmupRestarts(
+            self.action_optimizer,
+            first_cycle_steps=cfg.action_lr_scheduler.first_cycle_steps,
             cycle_mult=1.0,
-            max_lr=cfg.learning_rate,
-            min_lr=cfg.lr_scheduler.min_lr,
-            warmup_steps=cfg.lr_scheduler.warmup_steps,
+            max_lr=cfg.action_lr,
+            min_lr=cfg.action_lr_scheduler.min_lr,
+            warmup_steps=cfg.action_lr_scheduler.warmup_steps,
             gamma=1.0,
         )
         num_trained_parameters_in_billions = (
             sum(
                 p.numel()
-                for group in self.optimizer.param_groups
+                for group in self.action_optimizer.param_groups
                 for p in group["params"]
             )
             / 1e9
         )
         log.info(
-            f"Number of trained parameters: {num_trained_parameters_in_billions:.3f}B"
+            f"Number of trained parameters (Action): {num_trained_parameters_in_billions:.3f}B"
         )
+        if not self.train_action_only:
+            self.trained_parameters += model.pretrained_parameters
+            self.vlm_optimizer = bnb.optim.AdamW8bit(
+                model.pretrained_parameters,
+                lr=cfg.vlm_lr,
+                weight_decay=cfg.vlm_weight_decay,
+            )
+            self.vlm_lr_scheduler = CosineAnnealingWarmupRestarts(
+                self.vlm_optimizer,
+                first_cycle_steps=cfg.vlm_lr_scheduler.first_cycle_steps,
+                cycle_mult=1.0,
+                max_lr=cfg.vlm_lr,
+                min_lr=cfg.vlm_lr_scheduler.min_lr,
+                warmup_steps=cfg.vlm_lr_scheduler.warmup_steps,
+                gamma=1.0,
+            )
+            num_trained_parameters_in_billions = (
+                sum(
+                    p.numel()
+                    for group in self.vlm_optimizer.param_groups
+                    for p in group["params"]
+                )
+                / 1e9
+            )
+            log.info(
+                f"Number of trained parameters (VLM): {num_trained_parameters_in_billions:.3f}B"
+            )
 
     def run(self):
         timer = Timer()
@@ -247,13 +265,18 @@ class TrainAgent:
                         self.trained_parameters,
                         max_norm=self.max_grad_norm,
                     )
-                    self.optimizer.step()
-                    self.lr_scheduler.step()
+                    self.action_optimizer.step()
+                    self.action_lr_scheduler.step()
+                    if not self.train_action_only:
+                        self.vlm_optimizer.step()
+                        self.vlm_lr_scheduler.step()
                     if self.debug:
                         log_allocated_gpu_memory(
                             log, f"optimizer step batch {batch_ind}"
                         )
-                    self.optimizer.zero_grad(set_to_none=True)
+                    self.action_optimizer.zero_grad(set_to_none=True)
+                    if not self.train_action_only:
+                        self.vlm_optimizer.zero_grad(set_to_none=True)
                     if self.debug:
                         log_allocated_gpu_memory(
                             log, f"optimizer zero grad batch {batch_ind}"
@@ -267,15 +290,20 @@ class TrainAgent:
                 # log loss
                 if self.main_rank and cnt_batch % self.log_freq == 0:
                     loss_train_metric = np.mean(loss_train_deque)
-                    log.info(
-                        f"Epoch {epoch} Batch {batch_ind}: train loss {loss_train_metric:8.4f} | lr: {self.optimizer.param_groups[0]['lr']:8.6f} | t:{timer():8.4f}"
-                    )
+                    log_msg = f"Epoch {epoch} Batch {batch_ind}: t:{timer():8.4f} | train loss {loss_train_metric:8.4f} | action lr: {self.action_optimizer.param_groups[0]['lr']:10.8f}"
+                    if not self.train_action_only:
+                        log_msg += f" | vlm lr: {self.vlm_optimizer.param_groups[0]['lr']:10.8f}"
+                    log.info(log_msg)
                     if self.use_wandb:
                         wandb_metrics = {
                             "loss - train": loss_train_metric,
                             "gradient steps": cnt_update,
-                            "lr": self.optimizer.param_groups[0]["lr"],
+                            "action lr": self.action_optimizer.param_groups[0]["lr"],
                         }
+                        if not self.train_action_only:
+                            wandb_metrics["vlm lr"] = self.vlm_optimizer.param_groups[
+                                0
+                            ]["lr"]
                         if loss_val is not None:
                             wandb_metrics["loss - val"] = loss_val
                         wandb.log(wandb_metrics, step=cnt_batch, commit=True)
