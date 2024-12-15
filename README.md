@@ -4,9 +4,9 @@
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and the dependencies will be configured automatically when running any `uv run ...` command. Or `pip install -e .`
 
 ### Tests
-Block attention with dummy embeddings for img/text, proprio, and action
+VLA with real img/text, and output text
 ```console
-uv run src/model/vla/modules.py
+uv run src/model/vla/model.py --text_only --load_pretrained_weights
 ```
 
 VLA with dummy img/text, proprio, and action, output flow matching action
@@ -14,9 +14,9 @@ VLA with dummy img/text, proprio, and action, output flow matching action
 uv run src/model/vla/model.py
 ```
 
-VLA with dummy img/text, and output text
+Block attention with dummy embeddings for img/text, proprio, and action
 ```console
-uv run src/model/vla/model.py --text_only
+uv run src/model/vla/modules.py
 ```
 
 Text generation with original implementaton

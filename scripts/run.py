@@ -39,12 +39,7 @@ def _main(cfg: OmegaConf):
         from torch.distributed import destroy_process_group, init_process_group
 
         def ddp_setup():
-            # os.environ["MASTER_ADDR"] = os.environ["SLURM_NODELIST"].split(",")[0]
-            # os.environ["MASTER_PORT"] = "29500"
-            # os.environ["NCCL_DEBUG"] = "INFO"
             torch.cuda.set_device(int(os.environ["LOCAL_RANK"]))
-            torch.cuda.empty_cache()
-            # torch.cuda.set_device(rank)
             init_process_group(backend="nccl")
 
         ddp_setup()

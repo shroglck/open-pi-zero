@@ -539,6 +539,7 @@ class VLA(nn.Module):
 
 if __name__ == "__main__":
     import argparse
+    import time
 
     import numpy as np
     from omegaconf import OmegaConf
@@ -567,7 +568,9 @@ if __name__ == "__main__":
 
     # dummy image --- replace the first image with a real one
     bsz = 1 if args.text_only else 2
-    dummy_images = torch.randint(0, 256, (bsz, 3, 224, 224))  # not used if text_only
+    dummy_images = torch.randint(
+        0, 256, (bsz, 3, 224, 224), dtype=torch.uint8
+    )  # not used if text_only
     real_image_path = "media/maniskill_pp.png"
     real_image = Image.open(real_image_path).convert("RGB")
     real_image_t = torch.from_numpy(
@@ -603,6 +606,7 @@ if __name__ == "__main__":
     pixel_values = model_inputs["pixel_values"].to(device)
 
     # inference - text or actions
+    start_time = time.time()
     if args.text_only:
         # no sampling
         kv_cache = KVCache()
@@ -659,3 +663,4 @@ if __name__ == "__main__":
         )
         print("Final action dimensions:", actions.shape)
         print("Final action values:", actions)
+    print("Time taken:", time.time() - start_time)
