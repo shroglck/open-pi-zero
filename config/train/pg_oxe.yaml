@@ -12,16 +12,18 @@ seed: 42
 pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
 load_pretrained_weights: True
 train_action_only: False
+offload_optimizer: True
 debug: False
 
 data:
   dataset_mix: bridge
+  split: train[:95%]
   data_path: /n/fs/llm-unc/data/resize_224
   window_size: ${cond_steps}
   action_horizon: ${horizon_steps}
   skip_unlabeled: True
   load_proprio: True
-  shuffle_buffer_size: 50000
+  shuffle_buffer_size: 100000
   num_parallel_calls: 100
   traj_transform_threads: 10
   traj_read_threads: 10
@@ -32,21 +34,21 @@ wandb:
   run: ${now:%H-%M-%S}_${name}
 
 n_epochs: 10
-log_freq: 15
+log_freq: 16
 save_model_batch_freq: 10000000
 save_model_epoch_freq: 1
-global_batch_size: 1440
-per_device_batch_size: 12
-action_lr: 3e-4
-vlm_lr: 5e-6
+global_batch_size: 1024
+per_device_batch_size: 16
+action_lr: 5e-5
+vlm_lr: 1e-5
 action_lr_scheduler:
   first_cycle_steps: 10000000
   min_lr: 1e-8
-  warmup_steps: 1000
+  warmup_steps: 500
 vlm_lr_scheduler:
   first_cycle_steps: 10000000
   min_lr: 1e-8
-  warmup_steps: 1000
+  warmup_steps: 500
 action_weight_decay: 0
 vlm_weight_decay: 0
 max_grad_norm: 1.0

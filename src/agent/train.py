@@ -8,7 +8,6 @@ import os
 import random
 from collections import deque
 
-import bitsandbytes as bnb
 import einops
 import numpy as np
 import torch
@@ -21,8 +20,8 @@ import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.model import VLA
 from src.model.vla.processing import VLAProcessor
-from src.utils.lr_scheduler import CosineAnnealingWarmupRestarts
 from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_time
+from src.utils.optim import CosineAnnealingWarmupRestarts
 
 log = logging.getLogger(__name__)
 
@@ -69,7 +68,12 @@ class TrainAgent:
             from torch.nn.parallel import DistributedDataParallel as DDP
 
             self.model = self.model.to(self.gpu_id).to(torch.bfloat16)
-            self.model = DDP(self.model, device_ids=[self.gpu_id])
+            self.model = DDP(
+                self.model,
+                device_ids=[self.gpu_id],
+                gradient_as_bucket_view=True,
+                static_graph=True,
+            )
             self.device = torch.device(f"cuda:{self.gpu_id}")
             dist.barrier()
         else:
@@ -126,11 +130,25 @@ class TrainAgent:
         # optimizer - action only: 0.315B, rest: 2.359B
         self.train_action_only = cfg.train_action_only
         self.trained_parameters = model.action_expert_parameters
-        self.action_optimizer = bnb.optim.AdamW8bit(
-            model.action_expert_parameters,
-            lr=cfg.action_lr,
-            weight_decay=cfg.action_weight_decay,
-        )
+        if cfg.offload_optimizer:
+            from torchao.prototype.low_bit_optim import CPUOffloadOptimizer
+
+            self.action_optimizer = CPUOffloadOptimizer(
+                model.action_expert_parameters,
+                torch.optim.AdamW,  # no need to use low-bit optimizer
+                fused=True,
+                offload_gradients=False,  # does not work with grad accumulation
+                lr=cfg.action_lr,
+                weight_decay=cfg.action_weight_decay,
+            )
+        else:
+            import bitsandbytes as bnb
+
+            self.action_optimizer = bnb.optim.AdamW8bit(
+                model.action_expert_parameters,
+                lr=cfg.action_lr,
+                weight_decay=cfg.action_weight_decay,
+            )
         self.action_lr_scheduler = CosineAnnealingWarmupRestarts(
             self.action_optimizer,
             first_cycle_steps=cfg.action_lr_scheduler.first_cycle_steps,
@@ -153,11 +171,21 @@ class TrainAgent:
         )
         if not self.train_action_only:
             self.trained_parameters += model.pretrained_parameters
-            self.vlm_optimizer = bnb.optim.AdamW8bit(
-                model.pretrained_parameters,
-                lr=cfg.vlm_lr,
-                weight_decay=cfg.vlm_weight_decay,
-            )
+            if cfg.offload_optimizer:
+                self.vlm_optimizer = CPUOffloadOptimizer(
+                    model.pretrained_parameters,
+                    torch.optim.AdamW,
+                    fused=True,
+                    offload_gradients=False,
+                    lr=cfg.vlm_lr,
+                    weight_decay=cfg.vlm_weight_decay,
+                )
+            else:
+                self.vlm_optimizer = bnb.optim.AdamW8bit(
+                    model.pretrained_parameters,
+                    lr=cfg.vlm_lr,
+                    weight_decay=cfg.vlm_weight_decay,
+                )
             self.vlm_lr_scheduler = CosineAnnealingWarmupRestarts(
                 self.vlm_optimizer,
                 first_cycle_steps=cfg.vlm_lr_scheduler.first_cycle_steps,
@@ -200,7 +228,6 @@ class TrainAgent:
                 dataset_name
                 action_pad_mask (torch.Size([bsz, window, horizon, action_dim]))
                 """
-
                 with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
                     images = batch["observation"]["image_primary"]
                     proprios = batch["observation"]["proprio"]
@@ -264,7 +291,7 @@ class TrainAgent:
                     torch.nn.utils.clip_grad_norm_(
                         self.trained_parameters,
                         max_norm=self.max_grad_norm,
-                    )
+                    )  # not work any more because of offload? no error thrown
                     self.action_optimizer.step()
                     self.action_lr_scheduler.step()
                     if not self.train_action_only:

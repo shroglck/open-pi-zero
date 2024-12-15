@@ -22,15 +22,13 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 """
 
-# From https://github.com/katsura-jp/pytorch-cosine-annealing-with-warmup
-
+# Modified from https://github.com/katsura-jp/pytorch-cosine-annealing-with-warmup. Not inherited from _LRScheduler so compatible with offloaded optimizer
 import math
 
 import torch
-from torch.optim.lr_scheduler import _LRScheduler
 
 
-class CosineAnnealingWarmupRestarts(_LRScheduler):
+class CosineAnnealingWarmupRestarts:
     """
     optimizer (Optimizer): Wrapped optimizer.
     first_cycle_steps (int): First cycle step size.
@@ -66,8 +64,10 @@ class CosineAnnealingWarmupRestarts(_LRScheduler):
         self.cur_cycle_steps = first_cycle_steps  # first cycle step size
         self.cycle = 0  # cycle count
         self.step_in_cycle = last_epoch  # step size of the current cycle
+        self.last_epoch = last_epoch
 
-        super(CosineAnnealingWarmupRestarts, self).__init__(optimizer, last_epoch)
+        self.optimizer = optimizer
+        self.last_epoch = last_epoch
 
         # set learning rate min_lr
         self.init_lr()
@@ -147,4 +147,7 @@ class CosineAnnealingWarmupRestarts(_LRScheduler):
         for param_group, lr in zip(
             self.optimizer.param_groups, self.get_lr(), strict=False
         ):
-            param_group["lr"] = lr
+            if isinstance(param_group["lr"], torch.Tensor):
+                param_group["lr"].fill_(lr)
+            else:
+                param_group["lr"] = lr
