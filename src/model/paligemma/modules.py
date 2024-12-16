@@ -1,6 +1,7 @@
 import torch
-from bitsandbytes.nn import Linear4bit
 from torch import nn
+
+from src.model.lora import get_layer
 
 
 class GemmaRMSNorm(nn.Module):
@@ -67,15 +68,13 @@ class GemmaRotaryEmbedding(nn.Module):
 
 
 class GemmaMLP(nn.Module):
-    def __init__(self, config, quantize=False):
+    def __init__(self, config, quantize=False, lora=False):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
-        if quantize:
-            layer = Linear4bit
-        else:
-            layer = nn.Linear
+
+        layer = get_layer(quantize=quantize, lora=lora)
         self.gate_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
         self.up_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = layer(self.intermediate_size, self.hidden_size, bias=False)

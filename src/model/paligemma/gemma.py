@@ -2,9 +2,9 @@ import math
 from typing import Optional, Tuple
 
 import torch
-from bitsandbytes.nn import Linear4bit
 from torch import nn
 
+from src.model.lora import get_layer
 from src.model.paligemma.modules import GemmaMLP, GemmaRMSNorm, GemmaRotaryEmbedding
 from src.model.paligemma.siglip import PaliGemmaMultiModalProjector, SiglipVisionModel
 from src.model.paligemma.utils import KVCache, apply_rotary_pos_emb, repeat_kv
@@ -28,10 +28,7 @@ class GemmaAttention(nn.Module):
 
         assert self.hidden_size % self.num_heads == 0
 
-        if quantize:
-            layer = Linear4bit
-        else:
-            layer = nn.Linear
+        layer = get_layer(quantize=quantize)
         self.q_proj = layer(
             self.hidden_size,
             self.num_heads * self.head_dim,
