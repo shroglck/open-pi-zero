@@ -1,4 +1,5 @@
 import torch
+from bitsandbytes.nn import Linear4bit
 from torch import nn
 
 
@@ -66,14 +67,18 @@ class GemmaRotaryEmbedding(nn.Module):
 
 
 class GemmaMLP(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize=False):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
-        self.gate_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-        self.up_proj = nn.Linear(self.hidden_size, self.intermediate_size, bias=False)
-        self.down_proj = nn.Linear(self.intermediate_size, self.hidden_size, bias=False)
+        if quantize:
+            layer = Linear4bit
+        else:
+            layer = nn.Linear
+        self.gate_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
+        self.up_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
+        self.down_proj = layer(self.intermediate_size, self.hidden_size, bias=False)
 
     def forward(self, x):
         # Equivalent to:

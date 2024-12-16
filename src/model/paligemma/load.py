@@ -1,7 +1,6 @@
 import glob
 import json
 import os
-from typing import Tuple
 
 from safetensors import safe_open
 from transformers import AutoTokenizer
@@ -13,7 +12,11 @@ from src.model.paligemma.gemma import PaliGemmaForConditionalGeneration
 def load_hf_model(
     model_path: str,
     device: str,
-) -> Tuple[PaliGemmaForConditionalGeneration, AutoTokenizer]:
+    quantize: bool = False,
+):
+    if quantize:
+        print("Running qunatized model")
+
     # Load the tokenizer
     tokenizer = AutoTokenizer.from_pretrained(model_path, padding_side="right")
     assert tokenizer.padding_side == "right"
@@ -34,10 +37,13 @@ def load_hf_model(
         config = PaliGemmaConfig(**model_config_file)
 
     # Create the model using the configuration
-    model = PaliGemmaForConditionalGeneration(config).to(device)
+    model = PaliGemmaForConditionalGeneration(config, quantize=quantize)
 
     # Load the state dict of the model
     model.load_state_dict(tensors, strict=False)
+
+    # Move the model to the device --- quantization happens if the model is quantized
+    model = model.to(device)
 
     # Tie weights
     model.tie_weights()

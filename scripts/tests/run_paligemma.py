@@ -3,9 +3,9 @@ import time
 import torch
 from PIL import Image
 
-from src.model.paligemma.gemma import KVCache, PaliGemmaForConditionalGeneration
 from src.model.paligemma.load import load_hf_model
 from src.model.paligemma.processing import PaliGemmaProcessor
+from src.model.paligemma.utils import KVCache
 from src.utils.monitor import log_allocated_gpu_memory
 
 
@@ -15,7 +15,7 @@ def move_inputs_to_device(model_inputs: dict, device: str):
 
 
 def get_model_inputs(
-    processor: PaliGemmaProcessor,
+    processor,
     prompt: str,
     image_file_path: str,
     device: str,
@@ -29,8 +29,8 @@ def get_model_inputs(
 
 
 def test_inference(
-    model: PaliGemmaForConditionalGeneration,
-    processor: PaliGemmaProcessor,
+    model,
+    processor,
     device: str,
     prompt: str,
     image_file_path: str,
@@ -114,6 +114,7 @@ def main(
     top_p: float = 0.9,
     do_sample: bool = False,
     only_cpu: bool = False,
+    quantize: bool = False,
 ):
     device = "cpu"
 
@@ -127,7 +128,7 @@ def main(
 
     print("Loading model")
     time_start_load = time.time()
-    model, tokenizer = load_hf_model(model_path, device)
+    model, tokenizer = load_hf_model(model_path, device, quantize=quantize)
     model = model.to(device).eval()
     # cast
     model = model.to(torch.bfloat16)
@@ -141,6 +142,7 @@ def main(
     processor = PaliGemmaProcessor(tokenizer, num_image_tokens, image_size)
 
     print("Running inference")
+    time_start_inference = time.time()
     with torch.no_grad():
         test_inference(
             model,
@@ -153,6 +155,7 @@ def main(
             top_p,
             do_sample,
         )
+    print("Inference time: ", time.time() - time_start_inference)
 
 
 if __name__ == "__main__":
@@ -167,6 +170,7 @@ if __name__ == "__main__":
     parser.add_argument("--top_p", type=float, default=0.9)
     parser.add_argument("--do_sample", action="store_true")
     parser.add_argument("--only_cpu", action="store_true")
+    parser.add_argument("--quantize", action="store_true")
     args = parser.parse_args()
 
     main(**vars(args))

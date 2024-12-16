@@ -2,12 +2,17 @@ from typing import Optional, Tuple
 
 import torch
 import torch.nn as nn
+from bitsandbytes.nn import Linear4bit
 
 
 class PaliGemmaMultiModalProjector(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False):
         super().__init__()
-        self.linear = nn.Linear(
+        if quantize:
+            layer = Linear4bit
+        else:
+            layer = nn.Linear
+        self.linear = layer(
             config.vision_config.hidden_size,
             config.vision_config.projection_dim,
             bias=True,
@@ -69,7 +74,7 @@ class SiglipVisionEmbeddings(nn.Module):
 class SiglipAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False):
         super().__init__()
         self.config = config
         self.embed_dim = config.hidden_size
@@ -78,10 +83,14 @@ class SiglipAttention(nn.Module):
         self.scale = self.head_dim**-0.5  # Equivalent to 1 / sqrt(self.head_dim)
         self.dropout = config.attention_dropout
 
-        self.k_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        self.v_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        self.q_proj = nn.Linear(self.embed_dim, self.embed_dim)
-        self.out_proj = nn.Linear(self.embed_dim, self.embed_dim)
+        if quantize:
+            layer = Linear4bit
+        else:
+            layer = nn.Linear
+        self.k_proj = layer(self.embed_dim, self.embed_dim)
+        self.v_proj = layer(self.embed_dim, self.embed_dim)
+        self.q_proj = layer(self.embed_dim, self.embed_dim)
+        self.out_proj = layer(self.embed_dim, self.embed_dim)
 
     def forward(
         self,
@@ -145,11 +154,15 @@ class SiglipAttention(nn.Module):
 
 
 class SiglipMLP(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False):
         super().__init__()
         self.config = config
-        self.fc1 = nn.Linear(config.hidden_size, config.intermediate_size)
-        self.fc2 = nn.Linear(config.intermediate_size, config.hidden_size)
+        if quantize:
+            layer = Linear4bit
+        else:
+            layer = nn.Linear
+        self.fc1 = layer(config.hidden_size, config.intermediate_size)
+        self.fc2 = layer(config.intermediate_size, config.hidden_size)
 
     def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Intermediate_Size]
@@ -163,12 +176,12 @@ class SiglipMLP(nn.Module):
 
 
 class SiglipEncoderLayer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False):
         super().__init__()
         self.embed_dim = config.hidden_size
-        self.self_attn = SiglipAttention(config)
+        self.self_attn = SiglipAttention(config, quantize=quantize)
         self.layer_norm1 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
-        self.mlp = SiglipMLP(config)
+        self.mlp = SiglipMLP(config, quantize=quantize)
         self.layer_norm2 = nn.LayerNorm(self.embed_dim, eps=config.layer_norm_eps)
 
     # Ignore copy
@@ -194,11 +207,14 @@ class SiglipEncoderLayer(nn.Module):
 
 
 class SiglipEncoder(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False):
         super().__init__()
         self.config = config
         self.layers = nn.ModuleList(
-            [SiglipEncoderLayer(config) for _ in range(config.num_hidden_layers)]
+            [
+                SiglipEncoderLayer(config, quantize=quantize)
+                for _ in range(config.num_hidden_layers)
+            ]
         )
 
     # Ignore copy
@@ -214,13 +230,13 @@ class SiglipEncoder(nn.Module):
 
 
 class SiglipVisionTransformer(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False):
         super().__init__()
         self.config = config
         embed_dim = config.hidden_size
 
         self.embeddings = SiglipVisionEmbeddings(config)
-        self.encoder = SiglipEncoder(config)
+        self.encoder = SiglipEncoder(config, quantize=quantize)
         self.post_layernorm = nn.LayerNorm(embed_dim, eps=config.layer_norm_eps)
 
     def forward(self, pixel_values: torch.Tensor) -> torch.Tensor:
@@ -235,10 +251,10 @@ class SiglipVisionTransformer(nn.Module):
 
 
 class SiglipVisionModel(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False):
         super().__init__()
         self.config = config
-        self.vision_model = SiglipVisionTransformer(config)
+        self.vision_model = SiglipVisionTransformer(config, quantize=quantize)
 
     def forward(self, pixel_values) -> Tuple:
         # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
