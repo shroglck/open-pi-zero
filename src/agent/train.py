@@ -1,5 +1,5 @@
 """
-Main training agent
+Main training agent. Using bfloat16 and AMP.
 
 """
 
@@ -21,7 +21,7 @@ from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.model import VLA
 from src.model.vla.processing import VLAProcessor
 from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_time
-from src.utils.optim import CosineAnnealingWarmupRestarts
+from src.utils.optim import CosineAnnealingWarmupRestarts, get_num_params_in_billions
 
 log = logging.getLogger(__name__)
 
@@ -60,6 +60,13 @@ class TrainAgent:
         self.debug = cfg.get("debug", False)
 
         # model
+        assert not (
+            (cfg.quantize or cfg.lora) and not cfg.load_pretrained_weights
+        ), "Please load pretrained weights if quantizing VLM or using Lora."
+        if cfg.quantize and not cfg.lora:
+            log.warning(
+                "Quantizing VLM but not adding Lora weights, which means the VLM will be fully frozen!"
+            )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
         self.model = VLA(cfg)
         if self.multi_gpu:
             log.info(f"Using {self.num_gpus} GPUs.")
@@ -67,25 +74,27 @@ class TrainAgent:
             import torch.distributed as dist
             from torch.nn.parallel import DistributedDataParallel as DDP
 
-            self.model = self.model.to(self.gpu_id).to(torch.bfloat16)
+            self.device = torch.device(f"cuda:{self.gpu_id}")
+        else:
+            self.device = torch.device(cfg.device)
+        if cfg.load_pretrained_weights:
+            self.model.load_pretrained_weights()
+            self.model.freeze_embedding()
+        self.model = self.model.to(torch.bfloat16)
+        if self.multi_gpu:
+            self.model.to(self.gpu_id)
             self.model = DDP(
                 self.model,
                 device_ids=[self.gpu_id],
                 gradient_as_bucket_view=True,
                 static_graph=True,
             )
-            self.device = torch.device(f"cuda:{self.gpu_id}")
-            dist.barrier()
-        else:
-            self.model = self.model.to(cfg.device).to(torch.bfloat16)
-            self.device = torch.device(cfg.device)
-        if self.multi_gpu:
             model = self.model.module
         else:
+            self.model.to(cfg.device)
             model = self.model
-        if cfg.load_pretrained_weights:
-            model.load_pretrained_weights()
-            model.freeze_embedding()
+        if cfg.lora:
+            model.freeze_non_lora_weights_in_vlm()
         if self.multi_gpu:
             dist.barrier()
         log_allocated_gpu_memory(log, "loading model")
@@ -158,22 +167,18 @@ class TrainAgent:
             warmup_steps=cfg.action_lr_scheduler.warmup_steps,
             gamma=1.0,
         )
-        num_trained_parameters_in_billions = (
-            sum(
-                p.numel()
-                for group in self.action_optimizer.param_groups
-                for p in group["params"]
-            )
-            / 1e9
-        )
         log.info(
-            f"Number of trained parameters (Action): {num_trained_parameters_in_billions:.3f}B"
+            f"Number of trained parameters (Action): {get_num_params_in_billions(self.action_optimizer):.3f}B"
         )
         if not self.train_action_only:
-            self.trained_parameters += model.pretrained_parameters
+            if cfg.lora:
+                vlm_trained_parameters = model.lora_pretrained_parameters
+            else:
+                vlm_trained_parameters = model.pretrained_parameters
+            self.trained_parameters += vlm_trained_parameters
             if cfg.offload_optimizer:
                 self.vlm_optimizer = CPUOffloadOptimizer(
-                    model.pretrained_parameters,
+                    vlm_trained_parameters,
                     torch.optim.AdamW,
                     fused=True,
                     offload_gradients=False,
@@ -182,7 +187,7 @@ class TrainAgent:
                 )
             else:
                 self.vlm_optimizer = bnb.optim.AdamW8bit(
-                    model.pretrained_parameters,
+                    vlm_trained_parameters,
                     lr=cfg.vlm_lr,
                     weight_decay=cfg.vlm_weight_decay,
                 )
@@ -195,16 +200,8 @@ class TrainAgent:
                 warmup_steps=cfg.vlm_lr_scheduler.warmup_steps,
                 gamma=1.0,
             )
-            num_trained_parameters_in_billions = (
-                sum(
-                    p.numel()
-                    for group in self.vlm_optimizer.param_groups
-                    for p in group["params"]
-                )
-                / 1e9
-            )
             log.info(
-                f"Number of trained parameters (VLM): {num_trained_parameters_in_billions:.3f}B"
+                f"Number of trained parameters (VLM): {get_num_params_in_billions(self.vlm_optimizer):.3f}B"
             )
 
     def run(self):

@@ -12,7 +12,9 @@ seed: 42
 pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
 load_pretrained_weights: True
 train_action_only: False
-offload_optimizer: True
+offload_optimizer: False
+quantize: False
+lora: False
 debug: False
 
 data:
@@ -40,15 +42,15 @@ save_model_epoch_freq: 1
 global_batch_size: 1024
 per_device_batch_size: 16
 action_lr: 5e-5
-vlm_lr: 1e-5
+vlm_lr: 5e-5
 action_lr_scheduler:
   first_cycle_steps: 10000000
   min_lr: 1e-8
-  warmup_steps: 500
+  warmup_steps: 200
 vlm_lr_scheduler:
   first_cycle_steps: 10000000
   min_lr: 1e-8
-  warmup_steps: 500
+  warmup_steps: 200
 action_weight_decay: 0
 vlm_weight_decay: 0
 max_grad_norm: 1.0
@@ -85,6 +87,8 @@ vision:
     layer_norm_eps: 1e-6
     attention_dropout: 0.0
     num_image_tokens: 256
+  quantize: ${quantize}
+  lora: ${lora}
 
 vision_projector:
   _target_: src.model.paligemma.siglip.PaliGemmaMultiModalProjector
@@ -92,6 +96,8 @@ vision_projector:
     vision_config:
       hidden_size: 1152
       projection_dim: ${image_text_hidden_size}
+  quantize: ${quantize}
+  lora: ${lora}
 
 joint:
   _target_: src.model.vla.modules.JointModel
@@ -115,3 +121,5 @@ joint:
     attention_bias: False
     attention_dropout: 0.0
     pad_token_id: ${pad_token_id}
+  quantize: ${quantize}
+  lora: ${lora}

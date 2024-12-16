@@ -39,7 +39,7 @@ class GemmaRotaryEmbedding(nn.Module):
     @torch.no_grad()
     def forward(self, x, position_ids, seq_len=None):
         # x: [bs, num_attention_heads, seq_len, head_size]
-        self.inv_freq.to(x.device)
+        self.inv_freq.type_as(x)
         # Copy the inv_freq tensor for batch in the sequence
         # inv_freq_expanded: [Batch_Size, Head_Dim // 2, 1]
         inv_freq_expanded = (
@@ -64,7 +64,7 @@ class GemmaRotaryEmbedding(nn.Module):
             # cos, sin: [Batch_Size, Seq_Len, Head_Dim]
             cos = emb.cos()
             sin = emb.sin()
-        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+        return cos.type_as(x), sin.type_as(x)
 
 
 class GemmaMLP(nn.Module):

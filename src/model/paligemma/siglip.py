@@ -125,7 +125,7 @@ class SiglipAttention(nn.Module):
         # Apply the softmax row-wise. attn_weights: [Batch_Size, Num_Heads, Num_Patches, Num_Patches]
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32
-        ).to(query_states.dtype)
+        ).type_as(query_states)
         # Apply dropout only during training
         attn_weights = nn.functional.dropout(
             attn_weights, p=self.dropout, training=self.training

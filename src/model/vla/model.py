@@ -90,55 +90,32 @@ class VLA(nn.Module):
 
     @property
     def action_expert_parameters(self):
-        action_expert_parameters = []
-        for name, param in self.joint_model.named_parameters():
-            if (
-                "q_projs.2" in name
-                or "k_projs.2" in name
-                or "v_projs.2" in name
-                or "o_projs.2" in name
-                or "mlp.2" in name
-                or "layernorms.2" in name
-                or "layernorm.2" in name
-                or "action_norm" in name
-            ):
-                action_expert_parameters.append(param)
         return (
             list(self.action_time_encoder.parameters())
             + list(self.action_decoder.parameters())
             + list(self.proprio_encoder.parameters())
-            + action_expert_parameters
+            + self.joint_model.action_parameters
         )
 
     @property
     def pretrained_parameters(self):
-        pretrained_parameters = []
-        pretrained_names = []
-        last_hidden_layer_index = self.joint_model.num_hidden_layers - 1
-        for name, param in self.joint_model.named_parameters():
-            if not (
-                "q_projs.2" in name
-                or "k_projs.2" in name
-                or "v_projs.2" in name
-                or "o_projs.2" in name
-                or "mlp.2" in name
-                or "layernorms.2" in name
-                or "layernorm.2" in name
-                or "action_norm" in name
-                or name == "norm.weight"  # no need to tune final norm
-                or f"{last_hidden_layer_index}.post" in name
-                or f"{last_hidden_layer_index}.mlp" in name
-                or f"{last_hidden_layer_index}.self_attn.o_projs" in name
-                or f"{last_hidden_layer_index}.self_attn.v_projs"
-                in name  # no need to tune part of last layer
-            ):
-                pretrained_parameters.append(param)
-                pretrained_names.append(name)
         return (
             list(self.vision_tower.parameters())
             + list(self.multi_modal_projector.parameters())
-            + pretrained_parameters
+            + self.joint_model.trainable_gemma_parameters
         )
+
+    @property
+    def lora_pretrained_parameters(self):
+        params = []
+        for name, param in self.vision_tower.named_parameters():
+            if "lora_" in name:
+                params.append(param)
+        for name, param in self.multi_modal_projector.named_parameters():
+            if "lora_" in name:
+                params.append(param)
+        params.extend(self.joint_model.trainable_lora_gemma_parameters)
+        return params
 
     @log_execution_time()
     def load_pretrained_weights(self):
@@ -183,9 +160,16 @@ class VLA(nn.Module):
         )
         log.info("Loaded pre-trained weights for projector")
 
-        # load lm --- account for blocks
-        """this will not affect lora weights"""
+        # load lm --- account for blocks --- do not change any lora weights
         joint_model_state_dict = self.joint_model.state_dict()
+        lora_keys = []
+        for key in (
+            joint_model_state_dict.keys()
+        ):  # avoid RuntimeError: OrderedDict mutated during iteration
+            if "lora_" in key:
+                lora_keys.append(key)
+        for key in lora_keys:
+            del joint_model_state_dict[key]
         for k, v in tensors.items():
             if "language_model.model" in k:
                 new_key = k.replace("language_model.model.", "")
@@ -213,6 +197,19 @@ class VLA(nn.Module):
         self.joint_model.load_state_dict(joint_model_state_dict, strict=False)
         log.info("Loaded pre-trained weights for lm part of the joint model")
 
+    def freeze_non_lora_weights_in_vlm(self):
+        """Keep all bias frozen"""
+        for name, param in self.vision_tower.named_parameters():
+            param.requires_grad = True if "lora_" in name else False
+        log.info("Froze non-lora weights in vision tower")
+
+        for name, param in self.multi_modal_projector.named_parameters():
+            param.requires_grad = True if "lora_" in name else False
+        log.info("Froze non-lora weights in projector")
+
+        self.joint_model.freeze_non_lora_weights_in_gemma()
+        log.info("Froze non-lora weights in lm part of the joint model")
+
     def freeze_embedding(self):
         self.embed_tokens.weight.requires_grad = False
 
@@ -221,7 +218,7 @@ class VLA(nn.Module):
 
     def _merge_input_ids_with_pixel_values(
         self,
-        input_ids: torch.Tensor,
+        input_ids: torch.LongTensor,
         pixel_values: torch.FloatTensor,
     ) -> torch.FloatTensor:
         # Extract input embeddings
@@ -231,9 +228,13 @@ class VLA(nn.Module):
         # TODO: cache this in action inference
         # Extract image features from siglip and projector
         # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
-        selected_image_feature = self.vision_tower(pixel_values.to(inputs_embeds.dtype))
+        selected_image_feature = self.vision_tower(pixel_values.type_as(inputs_embeds))
         # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Hidden_Size]
-        image_features = self.multi_modal_projector(selected_image_feature)
+        image_features = self.multi_modal_projector(
+            selected_image_feature
+        ).type_as(
+            inputs_embeds
+        )  # need to explicitly cast to bfloat16 when using qlora, otherwise masked_scatter complains; seems an issue with masked_scatter and amp
 
         # Normalize the image features
         _, _, embed_dim = image_features.shape
@@ -294,16 +295,16 @@ class VLA(nn.Module):
         )  # smallest value, avoid using inf for softmax nan issues with padding
         for idx, num in enumerate(num_image_text_tokens):
             causal_mask[idx, :num, :num] = 0  # image/text attend to itself
-            causal_mask[
-                idx, proprio_start:proprio_end, :num
-            ] = 0  # proprio attend to image/text
+            causal_mask[idx, proprio_start:proprio_end, :num] = (
+                0  # proprio attend to image/text
+            )
             causal_mask[idx, action_start:, :num] = 0  # action attend to image/text
-        causal_mask[
-            :, proprio_start:proprio_end, proprio_start:proprio_end
-        ] = 0  # proprio attend to itself
-        causal_mask[
-            :, action_start:, proprio_start:
-        ] = 0  # action attend to itself and proprio
+        causal_mask[:, proprio_start:proprio_end, proprio_start:proprio_end] = (
+            0  # proprio attend to itself
+        )
+        causal_mask[:, action_start:, proprio_start:] = (
+            0  # action attend to itself and proprio
+        )
 
         # Add the head dimension
         # [Batch_Size, Q_Len, KV_Len] -> [Batch_Size, Num_Heads_Q, Q_Len, KV_Len]

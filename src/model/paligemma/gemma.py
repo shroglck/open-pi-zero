@@ -110,7 +110,7 @@ class GemmaAttention(nn.Module):
         # [Batch_Size, Num_Heads_Q, Seq_Len_Q, Seq_Len_KV]
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32
-        ).to(query_states.dtype)
+        ).type_as(query_states)
         # Apply the dropout
         attn_weights = nn.functional.dropout(
             attn_weights, p=self.attention_dropout, training=self.training
@@ -415,7 +415,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
         # TODO: why not cache this in text generation?
         # 2. Merge text and images
         # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
-        selected_image_feature = self.vision_tower(pixel_values.to(inputs_embeds.dtype))
+        selected_image_feature = self.vision_tower(pixel_values.type_as(inputs_embeds))
         # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Projected_Dim]
         image_features = self.multi_modal_projector(selected_image_feature)
 

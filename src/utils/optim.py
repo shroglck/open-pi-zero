@@ -151,3 +151,10 @@ class CosineAnnealingWarmupRestarts:
                 param_group["lr"].fill_(lr)
             else:
                 param_group["lr"] = lr
+
+
+def get_num_params_in_billions(optimizer):
+    return (
+        sum(p.numel() for group in optimizer.param_groups for p in group["params"])
+        / 1e9
+    )

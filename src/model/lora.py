@@ -83,8 +83,10 @@ def transpose(weight: torch.Tensor, fan_in_fan_out: bool) -> torch.Tensor:
 def get_layer(quantize: bool = False, lora: bool = False):
     if quantize and lora:
         return LoRALinear4bit
-    elif quantize:
+    elif quantize and not lora:
         return Linear4bit
+    elif not quantize and lora:
+        return LoRALinear
     else:
         return nn.Linear
 
@@ -133,9 +135,9 @@ class LoRALinear(nn.Linear, LoRALayer):
         self,
         in_features: int,
         out_features: int,
-        r: int = 0,
+        r: int = 32,
         lora_scaling: float = 1.0,
-        lora_dropout: float = 0.0,
+        lora_dropout: float = 0.05,
         fan_in_fan_out: bool = False,  # Set this to True if the layer to replace stores weight like (fan_in, fan_out)
         merge_weights: bool = True,
         **kwargs,
@@ -176,13 +178,13 @@ class LoRALinear(nn.Linear, LoRALayer):
             if self.merge_weights and self.merged:
                 # Make sure that the weights are not merged
                 if self.r > 0:
-                    self.weight.data -= self.get_delta_weight().to(self.weight.dtype)
+                    self.weight.data -= self.get_delta_weight().type_as(self.weight)
                 self.merged = False
         else:
             if self.merge_weights and not self.merged:
                 # Merge the weights and mark it
                 if self.r > 0:
-                    self.weight.data += self.get_delta_weight().to(self.weight.dtype)
+                    self.weight.data += self.get_delta_weight().type_as(self.weight)
                 self.merged = True
 
     def forward(self, x: torch.Tensor):

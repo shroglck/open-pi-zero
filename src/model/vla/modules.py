@@ -30,8 +30,10 @@ from src.model.paligemma.utils import (
 
 
 class JointModel(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, quantize: bool = False, lora: bool = False):
         super().__init__()
+        config.quantize = quantize
+        config.lora = lora
         self.config = config
         self.num_hidden_layers = config.num_hidden_layers
         (
@@ -53,6 +55,71 @@ class JointModel(nn.Module):
         self.action_norm = GemmaRMSNorm(
             self.action_hidden_size, eps=config.rms_norm_eps
         )
+
+    def _check_action_parameter_by_name(self, name: str) -> bool:
+        if (
+            "q_projs.2" in name
+            or "k_projs.2" in name
+            or "v_projs.2" in name
+            or "o_projs.2" in name
+            or "mlp.2" in name
+            or "layernorms.2" in name
+            or "layernorm.2" in name
+            or "action_norm" in name
+        ):
+            return True
+        return False
+
+    def _check_gemma_trainable_parameter_by_name(self, name: str) -> bool:
+        last_hidden_layer_index = self.num_hidden_layers - 1
+        if not (
+            "q_projs.2" in name
+            or "k_projs.2" in name
+            or "v_projs.2" in name
+            or "o_projs.2" in name
+            or "mlp.2" in name
+            or "layernorms.2" in name
+            or "layernorm.2" in name
+            or "action_norm" in name
+            or name == "norm.weight"  # no need to tune final norm
+            or f"{last_hidden_layer_index}.post" in name
+            or f"{last_hidden_layer_index}.mlp" in name
+            or f"{last_hidden_layer_index}.self_attn.o_projs" in name
+            or f"{last_hidden_layer_index}.self_attn.v_projs"
+            in name  # no need to tune part of last layer
+        ):
+            return True
+        return False
+
+    @property
+    def action_parameters(self):
+        action_parameters = []
+        for name, param in self.named_parameters():
+            if self._check_action_parameter_by_name(name):
+                action_parameters.append(param)
+        return action_parameters
+
+    @property
+    def trainable_gemma_parameters(self):
+        gemma_parameters = []
+        for name, param in self.named_parameters():
+            if self._check_gemma_trainable_parameter_by_name(name):
+                gemma_parameters.append(param)
+        return gemma_parameters
+
+    @property
+    def trainable_lora_gemma_parameters(self):
+        gemma_parameters = []
+        for name, param in self.named_parameters():
+            if self._check_gemma_trainable_parameter_by_name(name):
+                if "lora_" in name:
+                    gemma_parameters.append(param)
+        return gemma_parameters
+
+    def freeze_non_lora_weights_in_gemma(self):
+        for name, param in self.named_parameters():
+            if self._check_gemma_trainable_parameter_by_name(name):
+                param.requires_grad = True if "lora_" in name else False
 
     def forward(
         self,
@@ -432,7 +499,7 @@ class JointAttention(nn.Module):
         # [Batch_Size, Num_Heads_Q, Full_Seq_Len, Full_Seq_Len]
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32
-        ).to(query_states.dtype)
+        ).type_as(query_states)
         # Apply the dropout
         attn_weights = nn.functional.dropout(
             attn_weights, p=self.attention_dropout, training=self.training
@@ -531,7 +598,7 @@ class JointAttention(nn.Module):
         # [Batch_Size, Num_Heads_Q, Seq_Len_Q, Seq_Len_KV]
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=torch.float32
-        ).to(query_states.dtype)
+        ).type_as(query_states)
         # Apply the dropout
         attn_weights = nn.functional.dropout(
             attn_weights, p=self.attention_dropout, training=self.training
@@ -644,14 +711,14 @@ if __name__ == "__main__":
         torch.finfo(torch.float32).min,
         dtype=torch.float32,
     )  # smallest value
-    causal_mask[
-        :dummy_num_image_tokens, :dummy_num_image_tokens
-    ] = 0  # image/text attend to itself
+    causal_mask[:dummy_num_image_tokens, :dummy_num_image_tokens] = (
+        0  # image/text attend to itself
+    )
     proprio_start = dummy_num_image_tokens
     proprio_end = dummy_num_image_tokens + cfg.cond_steps
-    causal_mask[
-        proprio_start:proprio_end, :proprio_end
-    ] = 0  # proprio attend to itself and image/text
+    causal_mask[proprio_start:proprio_end, :proprio_end] = (
+        0  # proprio attend to itself and image/text
+    )
     action_start = proprio_end
     causal_mask[action_start:, :] = 0  # action attend to itself and all
 
