@@ -10,9 +10,11 @@ class GemmaRMSNorm(nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.zeros(dim))
 
+    @torch.compile
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
+    @torch.compile
     def forward(self, x):
         output = self._norm(x.float())
         # Llama does x.to(float16) * w whilst Gemma is (x * w).to(float16)
@@ -79,6 +81,7 @@ class GemmaMLP(nn.Module):
         self.up_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = layer(self.intermediate_size, self.hidden_size, bias=False)
 
+    @torch.compile
     def forward(self, x):
         # Equivalent to:
         # y = self.gate_proj(x) # [Batch_Size, Seq_Len, Hidden_Size] -> [Batch_Size, Seq_Len, Intermediate_Size]

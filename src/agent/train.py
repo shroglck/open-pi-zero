@@ -81,8 +81,8 @@ class TrainAgent:
             self.model.load_pretrained_weights()
             self.model.freeze_embedding()
         self.model = self.model.to(torch.bfloat16)
+        self.model.to(self.device)
         if self.multi_gpu:
-            self.model.to(self.gpu_id)
             self.model = DDP(
                 self.model,
                 device_ids=[self.gpu_id],
@@ -91,7 +91,6 @@ class TrainAgent:
             )
             model = self.model.module
         else:
-            self.model.to(cfg.device)
             model = self.model
         if cfg.lora:
             model.freeze_non_lora_weights_in_vlm()
