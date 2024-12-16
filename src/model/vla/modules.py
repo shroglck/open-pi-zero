@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
+from src.model.lora import get_layer
 from src.model.paligemma.modules import GemmaMLP, GemmaRMSNorm, GemmaRotaryEmbedding
 from src.model.paligemma.utils import (
     JointKVCache,
@@ -136,13 +137,17 @@ class JointDecoderLayer(nn.Module):
         self.self_attn = JointAttention(config=config, layer_idx=layer_idx)
 
         self.mlp = nn.ModuleList()
-        for hidden_size, intermediate_size in zip(
-            config.hidden_sizes, config.intermediate_sizes, strict=False
+        for block_index, (hidden_size, intermediate_size) in enumerate(
+            zip(config.hidden_sizes, config.intermediate_sizes, strict=False)
         ):
             mlp_config = config
             config.hidden_size = hidden_size
             config.intermediate_size = intermediate_size
-            self.mlp.append(GemmaMLP(mlp_config))
+            if block_index != 0:  # only quantize or lora for image/text block
+                quantize, lora = False, False
+            else:
+                quantize, lora = config.quantize, config.lora
+            self.mlp.append(GemmaMLP(mlp_config, quantize=quantize, lora=lora))
 
         self.input_layernorms = nn.ModuleList()
         self.post_attention_layernorms = nn.ModuleList()
@@ -266,44 +271,47 @@ class JointAttention(nn.Module):
         for hidden_size in self.hidden_sizes:
             assert hidden_size % self.num_heads == 0
 
+        # only quantize or lora for image/text block
+        image_text_layer = get_layer(config.quantize, config.lora)
+        layers = [image_text_layer] + [nn.Linear for _ in range(2)]
         self.q_projs = nn.ModuleList(
             [
-                nn.Linear(
+                layer(
                     hidden_size,
                     self.num_heads * self.head_dim,
                     bias=config.attention_bias,
                 )
-                for hidden_size in self.hidden_sizes
+                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
             ]
         )
         self.k_projs = nn.ModuleList(
             [
-                nn.Linear(
+                layer(
                     hidden_size,
                     self.num_key_value_heads * self.head_dim,
                     bias=config.attention_bias,
                 )
-                for hidden_size in self.hidden_sizes
+                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
             ]
         )
         self.v_projs = nn.ModuleList(
             [
-                nn.Linear(
+                layer(
                     hidden_size,
                     self.num_key_value_heads * self.head_dim,
                     bias=config.attention_bias,
                 )
-                for hidden_size in self.hidden_sizes
+                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
             ]
         )
         self.o_projs = nn.ModuleList(
             [
-                nn.Linear(
+                layer(
                     self.num_heads * self.head_dim,
                     hidden_size,
                     bias=config.attention_bias,
                 )
-                for hidden_size in self.hidden_sizes
+                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
             ]
         )
         self.rotary_emb = GemmaRotaryEmbedding(

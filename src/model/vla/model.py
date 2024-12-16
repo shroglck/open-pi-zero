@@ -161,7 +161,7 @@ class VLA(nn.Module):
                 new_key = k.replace("language_model.model.embed_tokens.", "")
                 embed_tokens_state_dict[new_key] = v
         self.embed_tokens.load_state_dict(embed_tokens_state_dict, strict=True)
-        print("Loaded pre-trained weights for embed tokens")
+        log.info("Loaded pre-trained weights for embed tokens")
 
         # load vision tower --- "vision_tower.vision_model" -> "vision_model"
         vision_tower_state_dict = self.vision_tower.state_dict()
@@ -170,7 +170,7 @@ class VLA(nn.Module):
                 new_key = k.replace("vision_tower.", "")
                 vision_tower_state_dict[new_key] = v
         self.vision_tower.load_state_dict(vision_tower_state_dict, strict=True)
-        print("Loaded pre-trained weights for vision tower")
+        log.info("Loaded pre-trained weights for vision tower")
 
         # load projector --- "multi_modal_projector.linear" -> "linear"
         multi_modal_projector_state_dict = self.multi_modal_projector.state_dict()
@@ -181,9 +181,10 @@ class VLA(nn.Module):
         self.multi_modal_projector.load_state_dict(
             multi_modal_projector_state_dict, strict=True
         )
-        print("Loaded pre-trained weights for projector")
+        log.info("Loaded pre-trained weights for projector")
 
         # load lm --- account for blocks
+        """this will not affect lora weights"""
         joint_model_state_dict = self.joint_model.state_dict()
         for k, v in tensors.items():
             if "language_model.model" in k:
@@ -210,7 +211,7 @@ class VLA(nn.Module):
                     continue
                 joint_model_state_dict[new_key] = v
         self.joint_model.load_state_dict(joint_model_state_dict, strict=False)
-        print("Loaded pre-trained weights for lm part of the joint model")
+        log.info("Loaded pre-trained weights for lm part of the joint model")
 
     def freeze_embedding(self):
         self.embed_tokens.weight.requires_grad = False
