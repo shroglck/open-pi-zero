@@ -456,7 +456,7 @@ class VLA(nn.Module):
             inputs_embeds=inputs_embeds,
             kv_cache=kv_cache,
         )
-        logits = self.lm_head(hidden_states).float()
+        logits = self.lm_head(hidden_states)
         return_data = {
             "logits": logits,
         }
@@ -498,7 +498,7 @@ class VLA(nn.Module):
             t = sample_from_transformed_beta(
                 self.gamma_alpha, self.gamma_beta, self.gamma_max, size=bsz
             )
-            t = torch.from_numpy(t).float().to(device)  # (B,)
+            t = torch.as_tensor(t, dtype=actions.dtype).to(device)  # (B,)
         # x ~ p_t(x0)
         x0 = torch.randn_like(actions, device=device)
 
@@ -575,7 +575,7 @@ if __name__ == "__main__":
     )  # not used if text_only
     real_image_path = "media/maniskill_pp.png"
     real_image = Image.open(real_image_path).convert("RGB")
-    real_image_t = torch.from_numpy(
+    real_image_t = torch.as_tensor(
         np.array(real_image.resize((224, 224))).transpose(2, 0, 1)
     )
     dummy_images[0] = real_image_t

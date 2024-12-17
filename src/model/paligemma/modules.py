@@ -16,15 +16,15 @@ class GemmaRMSNorm(nn.Module):
 
     @torch.compile
     def forward(self, x):
-        output = self._norm(x.float())
+        output = self._norm(x)
         # Llama does x.to(float16) * w whilst Gemma is (x * w).to(float16)
         # See https://github.com/huggingface/transformers/pull/29402
-        output = output * (1.0 + self.weight.float())
+        output = output * (1.0 + self.weight)
         return output.type_as(x)
 
 
 class GemmaRotaryEmbedding(nn.Module):
-    def __init__(self, dim, max_position_embeddings=2048, base=10000, device=None):
+    def __init__(self, dim, max_position_embeddings=2048, base=10000):
         super().__init__()
 
         self.dim = dim  # it is set to the head_dim
@@ -33,8 +33,7 @@ class GemmaRotaryEmbedding(nn.Module):
 
         # Calculate the theta according to the formula theta_i = base^(2i/dim) where i = 0, 1, 2, ..., dim // 2
         inv_freq = 1.0 / (
-            self.base
-            ** (torch.arange(0, self.dim, 2, dtype=torch.int64).float() / self.dim)
+            self.base ** (torch.arange(0, self.dim, 2, dtype=torch.float32) / self.dim)
         )
         self.register_buffer("inv_freq", tensor=inv_freq, persistent=False)
 
@@ -44,29 +43,20 @@ class GemmaRotaryEmbedding(nn.Module):
         self.inv_freq.type_as(x)
         # Copy the inv_freq tensor for batch in the sequence
         # inv_freq_expanded: [Batch_Size, Head_Dim // 2, 1]
-        inv_freq_expanded = (
-            self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        inv_freq_expanded = self.inv_freq[None, :, None].expand(
+            position_ids.shape[0], -1, 1
         )
         # position_ids_expanded: [Batch_Size, 1, Seq_Len]
-        position_ids_expanded = position_ids[:, None, :].float()
-        device_type = x.device.type
-        device_type = (
-            device_type
-            if isinstance(device_type, str) and device_type != "mps"
-            else "cpu"
-        )
-        with torch.autocast(device_type=device_type, enabled=False):
-            # Multiply each theta by the position (which is the argument of the sin and cos functions)
-            # freqs: [Batch_Size, Head_Dim // 2, 1] @ [Batch_Size, 1, Seq_Len] --> [Batch_Size, Seq_Len, Head_Dim // 2]
-            freqs = (
-                inv_freq_expanded.float() @ position_ids_expanded.float()
-            ).transpose(1, 2)
-            # emb: [Batch_Size, Seq_Len, Head_Dim]
-            emb = torch.cat((freqs, freqs), dim=-1)
-            # cos, sin: [Batch_Size, Seq_Len, Head_Dim]
-            cos = emb.cos()
-            sin = emb.sin()
-        return cos.type_as(x), sin.type_as(x)
+        position_ids_expanded = position_ids[:, None, :].type_as(inv_freq_expanded)
+        # Multiply each theta by the position (which is the argument of the sin and cos functions)
+        # freqs: [Batch_Size, Head_Dim // 2, 1] @ [Batch_Size, 1, Seq_Len] --> [Batch_Size, Seq_Len, Head_Dim // 2]
+        freqs = (inv_freq_expanded @ position_ids_expanded).transpose(1, 2)
+        # emb: [Batch_Size, Seq_Len, Head_Dim]
+        emb = torch.cat((freqs, freqs), dim=-1)
+        # cos, sin: [Batch_Size, Seq_Len, Head_Dim]
+        cos = emb.cos()
+        sin = emb.sin()
+        return cos, sin
 
 
 class GemmaMLP(nn.Module):

@@ -273,7 +273,6 @@ class GemmaForCausalLM(nn.Module):
 
         hidden_states = outputs
         logits = self.lm_head(hidden_states)
-        logits = logits.float()
 
         return_data = {
             "logits": logits,

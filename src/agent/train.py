@@ -68,21 +68,20 @@ class TrainAgent:
                 "Quantizing VLM but not adding Lora weights, which means the VLM will be fully frozen!"
             )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
         self.model = VLA(cfg)
+        if cfg.load_pretrained_weights:
+            self.model.load_pretrained_weights()
+            self.model.freeze_embedding()
+        if cfg.lora:
+            self.model.freeze_non_lora_weights_in_vlm()
+        self.model = self.model.to(torch.bfloat16)
+        self.device = torch.device(f"cuda:{self.gpu_id}")
+        self.model.to(self.device)  # quantization happens
         if self.multi_gpu:
             log.info(f"Using {self.num_gpus} GPUs.")
             log.info(f"GPU for the current process: {self.gpu_id}")
             import torch.distributed as dist
             from torch.nn.parallel import DistributedDataParallel as DDP
 
-            self.device = torch.device(f"cuda:{self.gpu_id}")
-        else:
-            self.device = torch.device(cfg.device)
-        if cfg.load_pretrained_weights:
-            self.model.load_pretrained_weights()
-            self.model.freeze_embedding()
-        self.model = self.model.to(torch.bfloat16)
-        self.model.to(self.device)
-        if self.multi_gpu:
             self.model = DDP(
                 self.model,
                 device_ids=[self.gpu_id],
@@ -92,8 +91,6 @@ class TrainAgent:
             model = self.model.module
         else:
             model = self.model
-        if cfg.lora:
-            model.freeze_non_lora_weights_in_vlm()
         if self.multi_gpu:
             dist.barrier()
         log_allocated_gpu_memory(log, "loading model")
