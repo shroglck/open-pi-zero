@@ -5,7 +5,13 @@ import torch
 import torch.nn as nn
 
 from src.model.lora import get_layer
-from src.model.paligemma.modules import GemmaMLP, GemmaRMSNorm, GemmaRotaryEmbedding
+from src.model.paligemma.modules import (
+    AdaptiveLayerscale,
+    AdaptiveRMSNorm,
+    GemmaMLP,
+    GemmaRMSNorm,
+    GemmaRotaryEmbedding,
+)
 from src.model.paligemma.utils import (
     JointKVCache,
     KVCache,
@@ -52,9 +58,16 @@ class JointModel(nn.Module):
 
         # final norms
         self.norm = GemmaRMSNorm(self.image_text_hidden_size, eps=config.rms_norm_eps)
-        self.action_norm = GemmaRMSNorm(
-            self.action_hidden_size, eps=config.rms_norm_eps
-        )
+        if config.use_adaptive_in_action_expert:
+            self.action_norm = AdaptiveRMSNorm(
+                self.action_hidden_size,
+                config.time_hidden_size,
+                eps=config.rms_norm_eps,
+            )  # time has the same dim as action
+        else:
+            self.action_norm = GemmaRMSNorm(
+                self.action_hidden_size, eps=config.rms_norm_eps
+            )
 
     def _check_action_parameter_by_name(self, name: str) -> bool:
         if (
@@ -64,8 +77,8 @@ class JointModel(nn.Module):
             or "o_projs.2" in name
             or "mlp.2" in name
             or "layernorms.2" in name
-            or "layernorm.2" in name
             or "action_norm" in name
+            or "_scale" in name  # adaptive layerscale
         ):
             return True
         return False
@@ -79,8 +92,8 @@ class JointModel(nn.Module):
             or "o_projs.2" in name
             or "mlp.2" in name
             or "layernorms.2" in name
-            or "layernorm.2" in name
             or "action_norm" in name
+            or "_scale" in name  # adaptive layerscale
             or name == "norm.weight"  # no need to tune final norm
             or f"{last_hidden_layer_index}.post" in name
             or f"{last_hidden_layer_index}.mlp" in name
@@ -128,6 +141,7 @@ class JointModel(nn.Module):
         inputs_embeds: torch.FloatTensor,
         proprio_embeds: torch.FloatTensor,
         action_embeds: torch.FloatTensor,
+        time_embeds: Optional[torch.FloatTensor] = None,
         kv_cache: Optional[JointKVCache] = None,
         cache_block_indices: Optional[torch.LongTensor] = None,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
@@ -159,12 +173,16 @@ class JointModel(nn.Module):
                 ),
                 attention_mask=attention_mask,
                 position_ids_all=position_ids_all,
+                time_embeds=time_embeds,
                 kv_cache=kv_cache,
                 cache_block_indices=cache_block_indices,
             )
 
         # [Batch_Size, Seq_Len, Hidden_Size]
-        action_hidden_states = self.action_norm(action_hidden_states)
+        if isinstance(self.action_norm, AdaptiveRMSNorm):
+            action_hidden_states = self.action_norm(action_hidden_states, time_embeds)
+        else:
+            action_hidden_states = self.action_norm(action_hidden_states)
 
         return action_hidden_states
 
@@ -218,19 +236,39 @@ class JointDecoderLayer(nn.Module):
 
         self.input_layernorms = nn.ModuleList()
         self.post_attention_layernorms = nn.ModuleList()
-        for hidden_size in config.hidden_sizes:
-            self.input_layernorms.append(
-                GemmaRMSNorm(hidden_size, eps=config.rms_norm_eps)
-            )
-            self.post_attention_layernorms.append(
-                GemmaRMSNorm(hidden_size, eps=config.rms_norm_eps)
-            )
+        for block_index, hidden_size in enumerate(config.hidden_sizes):
+            if config.use_adaptive_in_action_expert and block_index == 2:
+                self.input_layernorms.append(
+                    AdaptiveRMSNorm(
+                        hidden_size, config.time_hidden_size, eps=config.rms_norm_eps
+                    )
+                )
+                self.post_attention_layernorms.append(
+                    AdaptiveRMSNorm(
+                        hidden_size, config.time_hidden_size, eps=config.rms_norm_eps
+                    )
+                )
+                self.post_scale = AdaptiveLayerscale(
+                    hidden_size, config.time_hidden_size
+                )
+                self.final_scale = AdaptiveLayerscale(
+                    hidden_size, config.time_hidden_size
+                )
+            else:
+                self.input_layernorms.append(
+                    GemmaRMSNorm(hidden_size, eps=config.rms_norm_eps)
+                )
+                self.post_attention_layernorms.append(
+                    GemmaRMSNorm(hidden_size, eps=config.rms_norm_eps)
+                )
+        self.use_adaptive_in_action_expert = config.use_adaptive_in_action_expert
 
     def forward(
         self,
         hidden_states_all: Tuple[torch.Tensor, torch.Tensor, torch.Tensor],
         attention_mask: torch.Tensor,
         position_ids_all: Tuple[torch.Tensor],
+        time_embeds: Optional[torch.Tensor] = None,
         kv_cache: Optional[JointKVCache] = None,
         cache_block_indices: Optional[Tuple[int]] = None,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor, torch.FloatTensor]:
@@ -240,7 +278,10 @@ class JointDecoderLayer(nn.Module):
         for hidden_states, layernorm in zip(
             hidden_states_all, self.input_layernorms, strict=False
         ):
-            hidden_states_pre.append(layernorm(hidden_states))
+            if isinstance(layernorm, AdaptiveRMSNorm):
+                hidden_states_pre.append(layernorm(hidden_states, time_embeds))
+            else:
+                hidden_states_pre.append(layernorm(hidden_states))
 
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_all = self.self_attn(
@@ -252,7 +293,11 @@ class JointDecoderLayer(nn.Module):
         )
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_pre_res = []
-        for residual, hidden_states in zip(residuals, hidden_states_all, strict=False):
+        for block_index, (residual, hidden_states) in enumerate(
+            zip(residuals, hidden_states_all, strict=False)
+        ):
+            if self.use_adaptive_in_action_expert and block_index == 2:
+                hidden_states = self.post_scale(hidden_states, time_embeds)
             hidden_states_pre_res.append(residual + hidden_states)
 
         # [Batch_Size, Seq_Len, Hidden_Size]
@@ -262,7 +307,10 @@ class JointDecoderLayer(nn.Module):
         for hidden_states, layernorm in zip(
             hidden_states_pre_res, self.post_attention_layernorms, strict=False
         ):
-            hidden_states_post.append(layernorm(hidden_states))
+            if isinstance(layernorm, AdaptiveRMSNorm):
+                hidden_states_post.append(layernorm(hidden_states, time_embeds))
+            else:
+                hidden_states_post.append(layernorm(hidden_states))
 
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_mlp = []
@@ -271,7 +319,11 @@ class JointDecoderLayer(nn.Module):
 
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_final = []
-        for residual, hidden_states in zip(residuals, hidden_states_mlp, strict=False):
+        for block_index, (residual, hidden_states) in enumerate(
+            zip(residuals, hidden_states_mlp, strict=False)
+        ):
+            if self.use_adaptive_in_action_expert and block_index == 2:
+                hidden_states = self.final_scale(hidden_states, time_embeds)
             hidden_states_final.append(residual + hidden_states)
 
         return tuple(hidden_states_final)
@@ -628,42 +680,45 @@ class SinusoidalPosEmb(nn.Module):
 
     def forward(
         self,
-        x: torch.LongTensor,
+        t: torch.FloatTensor,
+        max_period: float = 10000.0,
     ) -> torch.FloatTensor:
-        device = x.device
+        device = t.device
         half_dim = self.dim // 2
-        emb = math.log(10000) / (half_dim - 1)
+        emb = math.log(max_period) / (half_dim - 1)
         emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = x[:, None] * emb[None, :]
+        emb = t[:, None] * emb[None, :]
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
 
-class ActionTimeEncoder(nn.Module):
+class ActionEncoder(nn.Module):
     """Matching pi0 appendix"""
 
-    def __init__(self, action_dim: int, width: int):
+    def __init__(self, action_dim: int, width: int, time_cond: bool = False):
         super().__init__()
-        self.time_embedding = SinusoidalPosEmb(width)
         self.linear_1 = nn.Linear(action_dim, width)
-        self.linear_2 = nn.Linear(2 * width, width)
+        if time_cond:
+            self.linear_2 = nn.Linear(2 * width, width)
+        else:
+            self.linear_2 = nn.Linear(width, width)
         self.nonlinearity = nn.SiLU()  # swish
         self.linear_3 = nn.Linear(width, width)
+        self.time_cond = time_cond
 
     def forward(
         self,
         action: torch.FloatTensor,
-        t: torch.LongTensor,
+        time_emb: Optional[torch.FloatTensor] = None,
     ) -> torch.FloatTensor:
-        # [Batch_Size, Emb_Dim]
-        time_emb = self.time_embedding(t)
-        # repeat time embedding for seq_len
         # [Batch_Size, Seq_Len, Width]
-        time_emb = time_emb.unsqueeze(1).expand(-1, action.size(1), -1)
-        # [Batch_Size, Seq_Len, Width]
-        action_emb = self.linear_1(action)
-        time_action_emb = torch.cat([time_emb, action_emb], dim=-1)
-        emb = self.nonlinearity(self.linear_2(time_action_emb))
+        emb = self.linear_1(action)
+        if self.time_cond:
+            # repeat time embedding for seq_len
+            # [Batch_Size, Seq_Len, Width]
+            time_emb_full = time_emb.unsqueeze(1).expand(-1, action.size(1), -1)
+            emb = torch.cat([time_emb_full, emb], dim=-1)
+        emb = self.nonlinearity(self.linear_2(emb))
         emb = self.linear_3(emb)
         return emb
 

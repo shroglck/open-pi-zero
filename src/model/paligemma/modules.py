@@ -1,4 +1,5 @@
 import torch
+from einops import rearrange
 from torch import nn
 
 from src.model.lora import get_layer
@@ -21,6 +22,48 @@ class GemmaRMSNorm(nn.Module):
         # See https://github.com/huggingface/transformers/pull/29402
         output = output * (1.0 + self.weight)
         return output.type_as(x)
+
+
+class AdaptiveRMSNorm(nn.Module):
+    def __init__(self, dim: int, dim_cond: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        self.to_gamma = nn.Sequential(
+            nn.Linear(dim_cond, dim),
+            nn.Sigmoid(),
+        )
+        self.to_beta = nn.Linear(dim_cond, dim, bias=False)
+
+    # @torch.compile
+    def _norm(self, x):
+        return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
+
+    # @torch.compile
+    def forward(self, x, cond):
+        output = self._norm(x)
+        if cond.ndim == 2:
+            cond = rearrange(cond, "b d -> b 1 d")
+        gamma = self.to_gamma(cond)
+        beta = self.to_beta(cond)
+        return output * gamma + beta
+
+
+class AdaptiveLayerscale(nn.Module):
+    def __init__(
+        self, dim: int, dim_cond: int, adaln_zero_bias_init_value: float = -2.0
+    ):
+        super().__init__()
+        adaln_zero_gamma_linear = nn.Linear(dim_cond, dim)
+        nn.init.zeros_(adaln_zero_gamma_linear.weight)
+        nn.init.constant_(adaln_zero_gamma_linear.bias, adaln_zero_bias_init_value)
+
+        self.to_adaln_zero_gamma = adaln_zero_gamma_linear
+
+    def forward(self, x, cond):
+        if cond.ndim == 2:
+            cond = rearrange(cond, "b d -> b 1 d")
+        gamma = self.to_adaln_zero_gamma(cond)
+        return x * gamma.sigmoid()
 
 
 class GemmaRotaryEmbedding(nn.Module):

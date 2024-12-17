@@ -9,7 +9,7 @@ from safetensors import safe_open
 from torch import nn
 
 from src.model.paligemma.utils import JointKVCache, KVCache
-from src.model.vla.modules import ActionTimeEncoder
+from src.model.vla.modules import ActionEncoder, SinusoidalPosEmb
 from src.model.vla.utils import sample_from_transformed_beta
 from src.utils.monitor import log_execution_time
 
@@ -65,10 +65,22 @@ class VLA(nn.Module):
         self.joint_model = hydra.utils.instantiate(cfg.joint)
 
         # Action, proprio, time encoders
-        self.action_time_encoder = ActionTimeEncoder(
-            cfg.action_dim,
-            cfg.action_hidden_size,
-        )
+        if cfg.use_adaptive_in_action_expert:
+            self.action_encoder = ActionEncoder(
+                cfg.action_dim,
+                cfg.action_hidden_size,
+                time_cond=False,
+            )
+            self.time_embedding = SinusoidalPosEmb(cfg.time_hidden_size)
+        else:  # matching pi0
+            self.action_encoder = ActionEncoder(
+                cfg.action_dim,
+                cfg.action_hidden_size,
+                time_cond=True,
+            )
+            self.time_embedding = SinusoidalPosEmb(cfg.action_hidden_size)
+        self.use_adaptive_in_action_expert = cfg.use_adaptive_in_action_expert
+
         self.proprio_encoder = nn.Linear(
             cfg.proprio_dim,
             cfg.proprio_hidden_size,
@@ -91,7 +103,7 @@ class VLA(nn.Module):
     @property
     def action_expert_parameters(self):
         return (
-            list(self.action_time_encoder.parameters())
+            list(self.action_encoder.parameters())
             + list(self.action_decoder.parameters())
             + list(self.proprio_encoder.parameters())
             + self.joint_model.action_parameters
@@ -403,8 +415,12 @@ class VLA(nn.Module):
         t = torch.zeros(bsz, device=input_ids.device)
         for _ in range(self.num_inference_steps):
             # encode action and time into embedding
+            time_embeds = self.time_embedding(t)
             # [Batch_Size, Horizon_Steps, Embed_Dim]
-            action_embeds = self.action_time_encoder(action, t)
+            if self.use_adaptive_in_action_expert:
+                action_embeds = self.action_encoder(action)
+            else:
+                action_embeds = self.action_encoder(action, time_embeds)
             # forward thru joint model with block attention
             # [Batch_Size, Horizon_Steps, Embed_Dim]
             action_embeds = self.joint_model(
@@ -519,8 +535,13 @@ class VLA(nn.Module):
         proprio_embeds = self.proprio_encoder(proprios)
 
         # inference with noisy action
+        # [Batch_Size, Embed_Dim]
+        time_embeds = self.time_embedding(t)
         # [Batch_Size, Horizon_Steps, Embed_Dim]
-        action_embeds = self.action_time_encoder(psi_t, t)
+        if self.use_adaptive_in_action_expert:
+            action_embeds = self.action_encoder(psi_t)
+        else:
+            action_embeds = self.action_encoder(psi_t, time_embeds)
         # forward thru joint model with block attention
         # [Batch_Size, Horizon_Steps, Embed_Dim]
         action_embeds = self.joint_model(
@@ -529,6 +550,7 @@ class VLA(nn.Module):
             inputs_embeds=inputs_embeds,
             proprio_embeds=proprio_embeds,
             action_embeds=action_embeds,
+            time_embeds=time_embeds,
             cache_block_indices=self.cache_block_indices,
         )
         # [Batch_Size, Horizon_Steps, Action_Dim]

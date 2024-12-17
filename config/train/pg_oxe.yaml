@@ -12,6 +12,7 @@ seed: 42
 pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
 load_pretrained_weights: True
 train_action_only: False
+use_adaptive_in_action_expert: True
 offload_optimizer: False
 quantize: False
 lora: False
@@ -68,6 +69,7 @@ tokenizer_padding: max_length # instead of truncating to longest
 image_text_hidden_size: 2048  # gemma
 proprio_hidden_size: 512
 action_hidden_size: 1024
+time_hidden_size: 256 # if using adaptive
 
 # Fixed
 image_token_index: 257152
@@ -102,6 +104,8 @@ vision_projector:
 joint:
   _target_: src.model.vla.modules.JointModel
   config:
+    use_adaptive_in_action_expert: ${use_adaptive_in_action_expert}
+    time_hidden_size: ${time_hidden_size}
     hidden_sizes:
       - ${image_text_hidden_size}
       - ${proprio_hidden_size}
