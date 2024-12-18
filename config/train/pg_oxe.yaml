@@ -12,7 +12,7 @@ seed: 42
 pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
 load_pretrained_weights: True
 train_action_only: False
-use_adaptive_in_action_expert: True
+action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False
 lora: False
@@ -104,7 +104,7 @@ vision_projector:
 joint:
   _target_: src.model.vla.modules.JointModel
   config:
-    use_adaptive_in_action_expert: ${use_adaptive_in_action_expert}
+    action_expert_adaptive_mode: ${action_expert_adaptive_mode}
     time_hidden_size: ${time_hidden_size}
     hidden_sizes:
       - ${image_text_hidden_size}

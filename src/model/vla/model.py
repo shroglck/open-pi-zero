@@ -67,7 +67,7 @@ class VLA(nn.Module, NoSyncBase):
         self.joint_model = hydra.utils.instantiate(cfg.joint)
 
         # Action, proprio, time encoders
-        if cfg.use_adaptive_in_action_expert:
+        if cfg.action_expert_adaptive_mode:
             self.action_encoder = ActionEncoder(
                 cfg.action_dim,
                 cfg.action_hidden_size,
@@ -81,7 +81,7 @@ class VLA(nn.Module, NoSyncBase):
                 time_cond=True,
             )
             self.time_embedding = SinusoidalPosEmb(cfg.action_hidden_size)
-        self.use_adaptive_in_action_expert = cfg.use_adaptive_in_action_expert
+        self.action_expert_adaptive_mode = cfg.action_expert_adaptive_mode
 
         self.proprio_encoder = nn.Linear(
             cfg.proprio_dim,
@@ -423,7 +423,7 @@ class VLA(nn.Module, NoSyncBase):
             # encode action and time into embedding
             time_embeds = self.time_embedding(t)
             # [Batch_Size, Horizon_Steps, Embed_Dim]
-            if self.use_adaptive_in_action_expert:
+            if self.action_expert_adaptive_mode:
                 action_embeds = self.action_encoder(action)
             else:
                 action_embeds = self.action_encoder(action, time_embeds)
@@ -544,7 +544,7 @@ class VLA(nn.Module, NoSyncBase):
         # [Batch_Size, Embed_Dim]
         time_embeds = self.time_embedding(t)
         # [Batch_Size, Horizon_Steps, Embed_Dim]
-        if self.use_adaptive_in_action_expert:
+        if self.action_expert_adaptive_mode:
             action_embeds = self.action_encoder(psi_t)
         else:
             action_embeds = self.action_encoder(psi_t, time_embeds)

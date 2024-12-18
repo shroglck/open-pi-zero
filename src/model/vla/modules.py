@@ -61,7 +61,7 @@ class JointModel(nn.Module):
             self.norm = GemmaRMSNorm(
                 self.image_text_hidden_size, eps=config.rms_norm_eps
             )
-        if config.use_adaptive_in_action_expert:
+        if config.action_expert_adaptive_mode:
             self.action_norm = AdaptiveRMSNorm(
                 self.action_hidden_size,
                 config.time_hidden_size,
@@ -252,7 +252,7 @@ class JointDecoderLayer(nn.Module):
         self.input_layernorms = nn.ModuleList()
         self.post_attention_layernorms = nn.ModuleList()
         for block_index, hidden_size in enumerate(config.hidden_sizes):
-            if config.use_adaptive_in_action_expert and block_index == 2:
+            if config.action_expert_adaptive_mode and block_index == 2:
                 self.input_layernorms.append(
                     AdaptiveRMSNorm(
                         hidden_size, config.time_hidden_size, eps=config.rms_norm_eps
@@ -263,12 +263,13 @@ class JointDecoderLayer(nn.Module):
                         hidden_size, config.time_hidden_size, eps=config.rms_norm_eps
                     )
                 )
-                self.post_scale = AdaptiveLayerscale(
-                    hidden_size, config.time_hidden_size
-                )
-                self.final_scale = AdaptiveLayerscale(
-                    hidden_size, config.time_hidden_size
-                )
+                if config.action_expert_adaptive_mode == "adaLN-Zero":
+                    self.post_adaptive_scale = AdaptiveLayerscale(
+                        hidden_size, config.time_hidden_size
+                    )
+                    self.final_adaptive_scale = AdaptiveLayerscale(
+                        hidden_size, config.time_hidden_size
+                    )
             else:
                 self.input_layernorms.append(
                     GemmaRMSNorm(hidden_size, eps=config.rms_norm_eps)
@@ -276,7 +277,7 @@ class JointDecoderLayer(nn.Module):
                 self.post_attention_layernorms.append(
                     GemmaRMSNorm(hidden_size, eps=config.rms_norm_eps)
                 )
-        self.use_adaptive_in_action_expert = config.use_adaptive_in_action_expert
+        self.action_expert_adaptive_mode = config.action_expert_adaptive_mode
 
     def forward(
         self,
@@ -313,9 +314,9 @@ class JointDecoderLayer(nn.Module):
         ):
             if self.final_layer and block_index != 2:
                 hidden_states_pre_res.append(None)
-            elif self.use_adaptive_in_action_expert and block_index == 2:
+            elif hasattr(self, "post_adaptive_scale") and block_index == 2:
                 hidden_states_pre_res.append(
-                    residual + self.post_scale(hidden_states, time_embeds)
+                    residual + self.post_adaptive_scale(hidden_states, time_embeds)
                 )
             else:
                 hidden_states_pre_res.append(residual + hidden_states)
@@ -351,9 +352,9 @@ class JointDecoderLayer(nn.Module):
         ):
             if self.final_layer and block_index != 2:
                 hidden_states_final.append(None)
-            elif self.use_adaptive_in_action_expert and block_index == 2:
+            elif hasattr(self, "final_adaptive_scale") and block_index == 2:
                 hidden_states_final.append(
-                    residual + self.final_scale(hidden_states, time_embeds)
+                    residual + self.final_adaptive_scale(hidden_states, time_embeds)
                 )
             else:
                 hidden_states_final.append(residual + hidden_states)

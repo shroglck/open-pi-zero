@@ -132,7 +132,7 @@ class TrainAgent:
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
         log.info(f"Number of batches per epoch: {num_batch_per_epoch}")
 
-        # optimizer - action only: 0.315B (0.342B with adaptive and time_dim=256), rest: 2.359B
+        # optimizer - action only: 0.315B (0.333B with adaLN and time_dim=256), rest: 2.359B
         self.train_action_only = cfg.train_action_only
         self.trained_parameters = model.action_expert_parameters
         if cfg.offload_optimizer:
