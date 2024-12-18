@@ -67,7 +67,7 @@ class TrainAgent:
             log.warning(
                 "Quantizing VLM but not adding Lora weights, which means the VLM will be fully frozen!"
             )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
-        self.model = VLA(cfg)
+        self.model = VLA(cfg, use_ddp=self.multi_gpu)
         if cfg.load_pretrained_weights:
             self.model.load_pretrained_weights()
             self.model.freeze_unused_weights()
@@ -256,17 +256,18 @@ class TrainAgent:
                 ]  # with padding if bsz > 1
 
                 self.model.train()
+                inputs = {
+                    "pixel_values": pixel_values.to(self.device),
+                    "input_ids": input_ids.to(self.device),
+                    "proprios": proprios.to(self.device),
+                    "actions": actions.to(self.device),
+                    "attention_mask": attention_mask.to(self.device),
+                }
                 # make sure only syncing when taking gradient steps
                 if (cnt_batch + 1) % self.grad_accumulation_steps != 0:
                     with self.model.no_sync():
                         with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
-                            loss_train = self.model(
-                                pixel_values=pixel_values.to(self.device),
-                                input_ids=input_ids.to(self.device),
-                                proprios=proprios.to(self.device),
-                                actions=actions.to(self.device),
-                                attention_mask=attention_mask.to(self.device),
-                            )
+                            loss_train = self.model(**inputs)
                             loss_train_deque.append(loss_train.item())
                         if self.debug:
                             log_allocated_gpu_memory(log, f"forward batch {batch_ind}")
@@ -277,13 +278,7 @@ class TrainAgent:
                             log_allocated_gpu_memory(log, f"backward batch {batch_ind}")
                 else:
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
-                        loss_train = self.model(
-                            pixel_values=pixel_values.to(self.device),
-                            input_ids=input_ids.to(self.device),
-                            proprios=proprios.to(self.device),
-                            actions=actions.to(self.device),
-                            attention_mask=attention_mask.to(self.device),
-                        )
+                        loss_train = self.model(**inputs)
                         loss_train_deque.append(loss_train.item())
                     if self.debug:
                         log_allocated_gpu_memory(log, f"forward batch {batch_ind}")

@@ -11,16 +11,18 @@ from torch import nn
 from src.model.paligemma.utils import JointKVCache, KVCache
 from src.model.vla.modules import ActionEncoder, SinusoidalPosEmb
 from src.model.vla.utils import sample_from_transformed_beta
+from src.utils.dummy import NoSyncBase
 from src.utils.monitor import log_execution_time
 
 log = logging.getLogger(__name__)
 
 
-class VLA(nn.Module):
+class VLA(nn.Module, NoSyncBase):
     @log_execution_time()
-    def __init__(self, cfg):
+    def __init__(self, cfg, use_ddp: bool = False):
         super().__init__()
         self.cfg = cfg
+        self.use_ddp = use_ddp
         self.vocab_size = cfg.vocab_size
         self.pad_token_id = cfg.pad_token_id
         self.image_token_index = cfg.image_token_index
