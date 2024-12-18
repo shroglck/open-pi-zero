@@ -8,6 +8,7 @@ _target_: src.agent.train.TrainAgent
 logdir: ${oc.env:VLA_LOG_DIR}/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}
 name: paligemma_${data.dataset_mix}_tp${horizon_steps}
 device: cuda
+n_nodes: 1
 seed: 42
 pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
 load_pretrained_weights: True

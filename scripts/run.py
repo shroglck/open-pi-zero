@@ -34,8 +34,8 @@ def _main(cfg: OmegaConf):
     OmegaConf.resolve(cfg)
 
     # figure out the current gpu
-    num_gpus = torch.cuda.device_count()
-    if num_gpus > 1:
+    multi_gpu = torch.cuda.device_count() > 1 or cfg.n_nodes > 1
+    if multi_gpu:
         from torch.distributed import destroy_process_group, init_process_group
 
         def ddp_setup():
@@ -48,13 +48,14 @@ def _main(cfg: OmegaConf):
         gpu_id = 0
     with open_dict(cfg):
         cfg.gpu_id = gpu_id
+        cfg.multi_gpu = multi_gpu
 
     # run agent
     cls = hydra.utils.get_class(cfg._target_)
     agent = cls(cfg)
     agent.run()
 
-    if num_gpus > 1:
+    if multi_gpu:
         destroy_process_group()
 
 

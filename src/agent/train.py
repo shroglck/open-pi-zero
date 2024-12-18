@@ -35,10 +35,21 @@ class TrainAgent:
         torch.manual_seed(self.seed)
 
         # devices
-        self.num_gpus = torch.cuda.device_count()
         self.gpu_id = int(cfg.gpu_id)
-        self.multi_gpu = self.num_gpus > 1
-        self.main_rank = self.gpu_id == 0
+        self.multi_gpu = cfg.multi_gpu
+        global_rank = int(os.environ["RANK"])
+        local_rank = int(os.environ["LOCAL_RANK"])
+        local_world_size = int(os.environ["LOCAL_WORLD_SIZE"])
+        world_size = int(os.environ["WORLD_SIZE"])
+        group_rank = int(os.environ["GROUP_RANK"])
+        self.main_rank = global_rank == 0
+        log.info(
+            f"GPU local ID: {self.gpu_id}. Global rank: {global_rank}. Local rank: {local_rank}. Local world size: {local_world_size}. World size: {world_size}. Group rank: {group_rank}"
+        )
+        for i in range(torch.cuda.device_count()):
+            log.info(
+                f"Local rank: {local_rank}, {torch.cuda.get_device_properties(i).uuid}"
+            )
 
         # training params
         self.n_epochs = cfg.n_epochs
@@ -70,21 +81,23 @@ class TrainAgent:
         self.model = VLA(cfg, use_ddp=self.multi_gpu)
         if cfg.load_pretrained_weights:
             self.model.load_pretrained_weights()
-            self.model.freeze_unused_weights()
+        self.model.freeze_unused_weights()
         if cfg.lora:
             self.model.freeze_non_lora_weights_in_vlm()
         self.model = self.model.to(torch.bfloat16)
         self.device = torch.device(f"cuda:{self.gpu_id}")
         self.model.to(self.device)  # quantization happens
+        log.info(f"Using cuda device: {self.device}")
         if self.multi_gpu:
-            log.info(f"Using {self.num_gpus} GPUs.")
-            log.info(f"GPU for the current process: {self.gpu_id}")
+            log.info(
+                f"Using {local_world_size} GPUs in each of the {cfg.n_nodes} nodes"
+            )
             import torch.distributed as dist
             from torch.nn.parallel import DistributedDataParallel as DDP
 
             self.model = DDP(
                 self.model,
-                device_ids=[self.gpu_id],
+                device_ids=[local_rank],
                 gradient_as_bucket_view=True,
                 static_graph=False,
             )
@@ -97,7 +110,7 @@ class TrainAgent:
 
         # determine batch size and gradient accumulation steps
         self.grad_accumulation_steps = (
-            cfg.global_batch_size // cfg.per_device_batch_size // self.num_gpus
+            cfg.global_batch_size // cfg.per_device_batch_size // world_size
         )
 
         # tokenizer --- assume paligemma for now
