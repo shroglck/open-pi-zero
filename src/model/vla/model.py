@@ -376,7 +376,7 @@ class VLA(nn.Module):
         return causal_mask, position_ids
 
     @torch.no_grad()
-    def forward(
+    def infer_action(
         self,
         input_ids: torch.LongTensor,
         pixel_values: torch.FloatTensor,
@@ -447,7 +447,7 @@ class VLA(nn.Module):
         return action
 
     @torch.no_grad()
-    def forward_text(
+    def infer_text(
         self,
         input_ids: torch.LongTensor,
         pixel_values: torch.FloatTensor,
@@ -492,7 +492,7 @@ class VLA(nn.Module):
         t = t[:, None, None]  # (B, 1, 1)
         return (1 - (1 - self.sig_min) * t) * x + t * x1
 
-    def loss(
+    def forward(
         self,
         pixel_values: torch.ByteTensor,
         input_ids: torch.LongTensor,
@@ -642,7 +642,7 @@ if __name__ == "__main__":
         generated_tokens = []
 
         for _ in range(num_tokens_to_generate):
-            outputs = model.forward_text(
+            outputs = model.infer_text(
                 input_ids=input_ids,
                 pixel_values=pixel_values,
                 attention_mask=attention_mask,
@@ -670,7 +670,7 @@ if __name__ == "__main__":
         dummy_actions = torch.randn(bsz, config.horizon_steps, config.action_dim).to(
             device
         )
-        loss = model.loss(
+        loss = model(
             pixel_values=pixel_values,
             input_ids=input_ids,
             proprios=dummy_proprio,
@@ -679,7 +679,7 @@ if __name__ == "__main__":
         )
         print("Loss:", loss)
     else:  # dummy action generation
-        actions = model.forward(
+        actions = model.infer_action(
             input_ids=input_ids,
             pixel_values=pixel_values,
             attention_mask=attention_mask,  # only for image/text
