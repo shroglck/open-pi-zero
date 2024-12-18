@@ -315,7 +315,7 @@ class JointDecoderLayer(nn.Module):
                 hidden_states_pre_res.append(None)
             elif self.use_adaptive_in_action_expert and block_index == 2:
                 hidden_states_pre_res.append(
-                    self.post_scale(hidden_states, time_embeds)
+                    residual + self.post_scale(hidden_states, time_embeds)
                 )
             else:
                 hidden_states_pre_res.append(residual + hidden_states)
@@ -352,7 +352,9 @@ class JointDecoderLayer(nn.Module):
             if self.final_layer and block_index != 2:
                 hidden_states_final.append(None)
             elif self.use_adaptive_in_action_expert and block_index == 2:
-                hidden_states_final.append(self.final_scale(hidden_states, time_embeds))
+                hidden_states_final.append(
+                    residual + self.final_scale(hidden_states, time_embeds)
+                )
             else:
                 hidden_states_final.append(residual + hidden_states)
 
