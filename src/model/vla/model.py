@@ -222,8 +222,12 @@ class VLA(nn.Module):
         self.joint_model.freeze_non_lora_weights_in_gemma()
         log.info("Froze non-lora weights in lm part of the joint model")
 
-    def freeze_embedding(self):
+    def freeze_unused_weights(self):
+        """text embedding and part of last layer"""
         self.embed_tokens.weight.requires_grad = False
+        for name, param in self.joint_model.named_parameters():
+            if self.joint_model._check_gemma_unused_parameter_by_name(name):
+                param.requires_grad = False
 
     def tie_weights(self):
         self.lm_head.weight = self.embed_tokens.weight

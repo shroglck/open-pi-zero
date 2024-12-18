@@ -34,11 +34,11 @@ class AdaptiveRMSNorm(nn.Module):
         )
         self.to_beta = nn.Linear(dim_cond, dim, bias=False)
 
-    # @torch.compile
+    @torch.compile
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
-    # @torch.compile
+    @torch.compile
     def forward(self, x, cond):
         output = self._norm(x)
         if cond.ndim == 2:
@@ -59,6 +59,7 @@ class AdaptiveLayerscale(nn.Module):
 
         self.to_adaln_zero_gamma = adaln_zero_gamma_linear
 
+    @torch.compile
     def forward(self, x, cond):
         if cond.ndim == 2:
             cond = rearrange(cond, "b d -> b 1 d")

@@ -70,7 +70,7 @@ class TrainAgent:
         self.model = VLA(cfg)
         if cfg.load_pretrained_weights:
             self.model.load_pretrained_weights()
-            self.model.freeze_embedding()
+            self.model.freeze_unused_weights()
         if cfg.lora:
             self.model.freeze_non_lora_weights_in_vlm()
         self.model = self.model.to(torch.bfloat16)
@@ -85,9 +85,8 @@ class TrainAgent:
             self.model = DDP(
                 self.model,
                 device_ids=[self.gpu_id],
-                find_unused_parameters=True,
                 gradient_as_bucket_view=True,
-                # static_graph=True,
+                static_graph=False,
             )
             model = self.model.module
         else:
