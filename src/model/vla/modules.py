@@ -425,7 +425,9 @@ class JointAttention(nn.Module):
             assert hidden_size % self.num_heads == 0
 
         # only quantize or lora for image/text block
-        image_text_layer = get_layer(config.quantize, config.lora)
+        image_text_layer = get_layer(
+            config.quantize, config.lora, r=config.lora_r, dropout=config.lora_dropout
+        )
         layers = [image_text_layer] + [nn.Linear for _ in range(2)]
         self.q_projs = nn.ModuleList(
             [

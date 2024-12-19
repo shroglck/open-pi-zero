@@ -9,7 +9,7 @@ from src.model.lora import get_layer
 class PaliGemmaMultiModalProjector(nn.Module):
     def __init__(self, config, quantize: bool = False, lora: bool = False):
         super().__init__()
-        layer = get_layer(quantize, lora)
+        layer = get_layer(quantize, lora, r=config.lora_r, dropout=config.lora_dropout)
         self.linear = layer(
             config.vision_config.hidden_size,
             config.vision_config.projection_dim,
@@ -81,7 +81,7 @@ class SiglipAttention(nn.Module):
         self.scale = self.head_dim**-0.5  # Equivalent to 1 / sqrt(self.head_dim)
         self.dropout = config.attention_dropout
 
-        layer = get_layer(quantize, lora)
+        layer = get_layer(quantize, lora, r=config.lora_r, dropout=config.lora_dropout)
         self.k_proj = layer(self.embed_dim, self.embed_dim)
         self.v_proj = layer(self.embed_dim, self.embed_dim)
         self.q_proj = layer(self.embed_dim, self.embed_dim)
@@ -152,7 +152,7 @@ class SiglipMLP(nn.Module):
     def __init__(self, config, quantize: bool = False, lora: bool = False):
         super().__init__()
         self.config = config
-        layer = get_layer(quantize, lora)
+        layer = get_layer(quantize, lora, r=config.lora_r, dropout=config.lora_dropout)
         self.fc1 = layer(config.hidden_size, config.intermediate_size)
         self.fc2 = layer(config.intermediate_size, config.hidden_size)
 

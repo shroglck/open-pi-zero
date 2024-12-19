@@ -35,21 +35,23 @@ class TrainAgent:
         torch.manual_seed(self.seed)
 
         # devices
-        self.gpu_id = int(cfg.gpu_id)
+        self.gpu_id = cfg.gpu_id
         self.multi_gpu = cfg.multi_gpu
-        global_rank = int(os.environ["RANK"])
-        local_rank = int(os.environ["LOCAL_RANK"])
-        local_world_size = int(os.environ["LOCAL_WORLD_SIZE"])
-        world_size = int(os.environ["WORLD_SIZE"])
-        group_rank = int(os.environ["GROUP_RANK"])
-        self.main_rank = global_rank == 0
-        log.info(
-            f"GPU local ID: {self.gpu_id}. Global rank: {global_rank}. Local rank: {local_rank}. Local world size: {local_world_size}. World size: {world_size}. Group rank: {group_rank}"
-        )
-        for i in range(torch.cuda.device_count()):
+        world_size = 1  # single gpu
+        if self.multi_gpu:
+            global_rank = int(os.environ["RANK"])
+            local_rank = int(os.environ["LOCAL_RANK"])
+            local_world_size = int(os.environ["LOCAL_WORLD_SIZE"])
+            world_size = int(os.environ["WORLD_SIZE"])
+            group_rank = int(os.environ["GROUP_RANK"])
             log.info(
-                f"Local rank: {local_rank}, {torch.cuda.get_device_properties(i).uuid}"
+                f"GPU local ID: {self.gpu_id}. Global rank: {global_rank}. Local rank: {local_rank}. Local world size: {local_world_size}. World size: {world_size}. Group rank: {group_rank}"
             )
+            for i in range(torch.cuda.device_count()):
+                log.info(
+                    f"Local rank: {local_rank}, GPU UUID: {torch.cuda.get_device_properties(i).uuid}"
+                )
+        self.main_rank = not self.multi_gpu or global_rank == 0
 
         # training params
         self.n_epochs = cfg.n_epochs
@@ -145,7 +147,8 @@ class TrainAgent:
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
         log.info(f"Number of batches per epoch: {num_batch_per_epoch}")
 
-        # optimizer - action only: 0.315B (0.333B with adaLN and time_dim=256), rest: 2.359B
+        # optimizer - action only: 0.315B (0.333B with adaLN and time_dim=256),
+        # rest: 2.359B (0.109B with lora rank 64, 0.055B with rank 32)
         self.train_action_only = cfg.train_action_only
         self.trained_parameters = model.action_expert_parameters
         if cfg.offload_optimizer:

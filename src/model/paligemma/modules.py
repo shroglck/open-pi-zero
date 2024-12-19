@@ -110,7 +110,9 @@ class GemmaMLP(nn.Module):
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
 
-        layer = get_layer(quantize=quantize, lora=lora)
+        layer = get_layer(
+            quantize=quantize, lora=lora, r=config.lora_r, dropout=config.lora_dropout
+        )
         self.gate_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
         self.up_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = layer(self.intermediate_size, self.hidden_size, bias=False)
