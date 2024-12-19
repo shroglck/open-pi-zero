@@ -17,6 +17,8 @@ action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False
 lora: False
+lora_r: 32
+lora_dropout: 0.0
 debug: False
 
 data:
@@ -90,12 +92,16 @@ vision:
     layer_norm_eps: 1e-6
     attention_dropout: 0.0
     num_image_tokens: 256
+    lora_r: ${lora_r}
+    lora_dropout: ${lora_dropout}
   quantize: ${quantize}
   lora: ${lora}
 
 vision_projector:
   _target_: src.model.paligemma.siglip.PaliGemmaMultiModalProjector
   config:
+    lora_r: ${lora_r}
+    lora_dropout: ${lora_dropout}
     vision_config:
       hidden_size: 1152
       projection_dim: ${image_text_hidden_size}
@@ -115,6 +121,8 @@ joint:
       - 16384 # gemma
       - 1024
       - 4096
+    lora_r: ${lora_r}
+    lora_dropout: ${lora_dropout}
     #
     num_hidden_layers: 18
     num_attention_heads: 8

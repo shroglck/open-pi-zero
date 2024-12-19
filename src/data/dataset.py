@@ -31,6 +31,7 @@ log = logging.getLogger(__name__)
 
 def apply_trajectory_transforms(
     dataset: dl.DLataset,
+    dataset_statistics: dict,
     *,
     train: bool,
     goal_relabeling_strategy: Optional[str] = None,
@@ -41,6 +42,7 @@ def apply_trajectory_transforms(
     skip_unlabeled: bool = False,
     max_action: Optional[float] = None,
     max_proprio: Optional[float] = None,
+    # max_action_from_stats: Optional[bool] = False,
     task_augment_strategy: Optional[str] = None,
     task_augment_kwargs: dict = {},
     max_action_dim: Optional[int] = None,
@@ -97,6 +99,15 @@ def apply_trajectory_transforms(
         dataset = dataset.filter(
             lambda x: tf.math.reduce_all(tf.math.abs(x["action"]) <= max_action)
         )
+
+    # if max_action_from_stats:
+    #     action_mean = dataset_statistics["action"]["mean"]
+    #     action_std = dataset_statistics["action"]["std"]
+    #     dataset = dataset.filter(
+    #         lambda x: tf.math.reduce_all(
+    #             tf.math.abs((x["action"] - action_mean) / action_std) <= 3,
+    #         )
+    #     )
 
     if max_proprio is not None and "proprio" in dataset.element_spec["observation"]:
         dataset = dataset.filter(
@@ -255,7 +266,7 @@ def make_dataset_from_rlds(
     depth_obs_keys: Mapping[str, Optional[str]] = {},
     proprio_obs_key: Optional[str] = None,
     language_key: Optional[str] = None,
-    action_proprio_normalization_type: NormalizationType = NormalizationType.NORMAL,
+    action_proprio_normalization_type: NormalizationType = NormalizationType.BOUNDS,
     dataset_statistics: Optional[Union[dict, str]] = None,
     force_recompute_dataset_statistics: bool = False,
     action_normalization_mask: Optional[Sequence[bool]] = None,
@@ -546,18 +557,20 @@ def make_interleaved_dataset(
         reads_per_dataset,
         strict=False,
     ):
+        dataset_statistics = all_dataset_statistics[dataset_kwargs["name"]]
         dataset, _, dataset_len = make_dataset_from_rlds(
             **dataset_kwargs,
             train=train,
             split=split,
             num_parallel_calls=threads,
             num_parallel_reads=reads,
-            dataset_statistics=all_dataset_statistics[dataset_kwargs["name"]],
+            dataset_statistics=dataset_statistics,
         )
         dataset_true_lengths.append(dataset_len)
         dataset = apply_trajectory_transforms(
             dataset.repeat(),
             **traj_transform_kwargs,
+            dataset_statistics=dataset_statistics,
             num_parallel_calls=threads,
             train=train,
         ).flatten(num_parallel_calls=threads)

@@ -81,8 +81,8 @@ if __name__ == "__main__":
         dataset_kwargs_list,
         sample_weights,
         train=True,
-        split="train[:64]",
-        shuffle_buffer_size=1000,  # change to 500k for training, large shuffle buffers are important, but adjust to your RAM
+        split="train[:95%]",
+        shuffle_buffer_size=10000,  # change to 500k for training, large shuffle buffers are important, but adjust to your RAM
         batch_size=None,  # batching will be handles in PyTorch Dataloader object
         balance_weights=True,
         traj_transform_kwargs=dict(
@@ -91,6 +91,8 @@ if __name__ == "__main__":
             action_horizon=4,
             subsample_length=100,
             skip_unlabeled=True,  # skip ones without language annotation
+            # max_action_from_stats=True,
+            # max_proprio_from_stats=True,
         ),
         frame_transform_kwargs=dict(
             image_augment_kwargs={
@@ -136,7 +138,9 @@ if __name__ == "__main__":
 
     # convert for torch
     pytorch_dataset = TorchRLDSDataset(dataset)
-    print("Dataset length:", len(pytorch_dataset))
+    print("Dataset length (traj):", len(pytorch_dataset))
+    num_transition = dataset.reduce(0, lambda x, _: x + 1).numpy()  # takes a while
+    print("Dataset length (transition):", num_transition)
     dataloader = DataLoader(
         pytorch_dataset,
         batch_size=16,
@@ -161,6 +165,12 @@ if __name__ == "__main__":
         texts = [
             text.decode("utf-8") for text in _sample["task"]["language_instruction"]
         ]
+        actions = _sample["action"]
+        proprios = _sample["observation"]["proprio"]
+
+        # verify the normalization
+        if actions.abs().max() > 1 or proprios.abs().max() > 1:
+            breakpoint()
         cnt_batch += 1
     load_time = time.time()
     print(f"Iterative over {cnt_batch} batches: {load_time - prep_time:.2f}s")

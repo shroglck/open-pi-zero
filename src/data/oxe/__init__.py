@@ -19,7 +19,7 @@ def make_oxe_dataset_kwargs(
     load_proprio: bool = False,
     load_language: bool = True,
     force_recompute_dataset_statistics: bool = False,
-    action_proprio_normalization_type: NormalizationType = NormalizationType.NORMAL,
+    action_proprio_normalization_type: NormalizationType = NormalizationType.BOUNDS,
 ) -> Dict[str, Any]:
     """Generates dataset kwargs for a given dataset from Open X-Embodiment. The returned kwargs can be passed
     directly into `octo.data.dataset.make_dataset_from_rlds`.
@@ -83,9 +83,9 @@ def make_oxe_dataset_kwargs(
     if load_language:
         dataset_kwargs["language_key"] = "language_instruction"
 
-    dataset_kwargs[
-        "action_proprio_normalization_type"
-    ] = action_proprio_normalization_type
+    dataset_kwargs["action_proprio_normalization_type"] = (
+        action_proprio_normalization_type
+    )
 
     del dataset_kwargs["proprio_encoding"]
     del dataset_kwargs["action_encoding"]
@@ -108,7 +108,7 @@ def make_oxe_dataset_kwargs_and_weights(
     load_proprio: bool = False,
     load_language: bool = True,
     force_recompute_dataset_statistics: bool = False,
-    action_proprio_normalization_type: NormalizationType = NormalizationType.NORMAL,
+    action_proprio_normalization_type: NormalizationType = NormalizationType.BOUNDS,
 ) -> Tuple[Dict[str, Any], List[float]]:
     """
     Generates dataset kwargs for a given dataset mix from the Open X-Embodiment dataset. The returned kwargs
