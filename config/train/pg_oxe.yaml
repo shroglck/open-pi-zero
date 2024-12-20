@@ -12,7 +12,8 @@ n_nodes: 1
 seed: 42
 pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
 load_pretrained_weights: True
-train_action_only: False
+resume_checkpoint_path:
+train_vlm: True
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False
@@ -39,11 +40,12 @@ wandb:
   project: train-vla
   run: ${now:%H-%M-%S}_${name}
 
-n_epochs: 10
 log_freq: 16
-save_model_batch_freq: 10000000
-save_model_epoch_freq: 1
-global_batch_size: 1024
+n_epochs: 2
+n_updates: ${eval:'2195527 // ${global_batch_size} * ${n_epochs}'}
+# save_model_freq: ${eval:'2195527 // ${global_batch_size} * 1'}
+save_model_freq: 16
+global_batch_size: 128
 per_device_batch_size: 16
 action_lr: 5e-5
 vlm_lr: 5e-5

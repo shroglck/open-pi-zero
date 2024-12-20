@@ -36,6 +36,7 @@ class TrainAgent:
 
         # devices
         self.gpu_id = cfg.gpu_id
+        self.device = torch.device(f"cuda:{self.gpu_id}")
         self.multi_gpu = cfg.multi_gpu
         world_size = 1  # single gpu
         if self.multi_gpu:
@@ -54,23 +55,14 @@ class TrainAgent:
         self.main_rank = not self.multi_gpu or global_rank == 0
 
         # training params
-        self.n_epochs = cfg.n_epochs
-        self.max_grad_norm = cfg.max_grad_norm
+        self.n_updates = int(cfg.n_updates)
+        self.save_model_freq = int(cfg.save_model_freq)
         self.log_freq = cfg.log_freq
-        self.save_model_batch_freq = cfg.save_model_batch_freq
-        self.save_model_epoch_freq = cfg.save_model_epoch_freq
         self.logdir = cfg.logdir
         self.checkpoint_dir = os.path.join(self.logdir, "checkpoint")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
-        self.use_wandb = cfg.get("wandb", None)
-        if self.use_wandb and self.main_rank:
-            wandb.init(
-                entity=cfg.wandb.entity,
-                project=cfg.wandb.project,
-                name=cfg.wandb.run,
-                config=OmegaConf.to_container(cfg, resolve=True),
-            )
-        self.debug = cfg.get("debug", False)
+
+        self.max_grad_norm = cfg.max_grad_norm
 
         # model
         assert not (
@@ -81,13 +73,16 @@ class TrainAgent:
                 "Quantizing VLM but not adding Lora weights, which means the VLM will be fully frozen!"
             )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
         self.model = VLA(cfg, use_ddp=self.multi_gpu)
-        if cfg.load_pretrained_weights:
+        if cfg.resume_checkpoint_path:
+            self.cnt_update, self.cnt_batch = self.load_checkpoint(
+                cfg.resume_checkpoint_path
+            )
+        elif cfg.load_pretrained_weights:
             self.model.load_pretrained_weights()
         self.model.freeze_unused_weights()
         if cfg.lora:
             self.model.freeze_non_lora_weights_in_vlm()
         self.model = self.model.to(torch.bfloat16)
-        self.device = torch.device(f"cuda:{self.gpu_id}")
         self.model.to(self.device)  # quantization happens
         log.info(f"Using cuda device: {self.device}")
         if self.multi_gpu:
@@ -141,15 +136,14 @@ class TrainAgent:
             pin_memory=True,
             # sampler=DistributedSampler(dataset_wrapper.dataset),
         )  # full bridge dataset has 2195527 transitions and 60064 trajectories
-        num_batch_per_epoch = len(dataset_wrapper.dataset) // cfg.global_batch_size
+        log.info(f"Total number of gradient updates: {self.n_updates}")
         log.info(f"Global batch size: {cfg.global_batch_size}")
         log.info(f"Per device batch size: {cfg.per_device_batch_size}")
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
-        log.info(f"Number of batches per epoch: {num_batch_per_epoch}")
 
         # optimizer - action only: 0.315B (0.333B with adaLN and time_dim=256),
         # rest: 2.359B (0.109B with lora rank 64, 0.055B with rank 32)
-        self.train_action_only = cfg.train_action_only
+        self.train_vlm = cfg.train_vlm
         self.trained_parameters = model.action_expert_parameters
         if cfg.offload_optimizer:
             from torchao.prototype.low_bit_optim import CPUOffloadOptimizer
@@ -182,7 +176,7 @@ class TrainAgent:
         log.info(
             f"Number of trained parameters (Action): {get_num_params_in_billions(self.action_optimizer):.3f}B"
         )
-        if not self.train_action_only:
+        if self.train_vlm:
             if cfg.lora:
                 vlm_trained_parameters = model.lora_pretrained_parameters
             else:
@@ -215,20 +209,32 @@ class TrainAgent:
             log.info(
                 f"Number of trained parameters (VLM): {get_num_params_in_billions(self.vlm_optimizer):.3f}B"
             )
+        if cfg.resume_checkpoint_path:
+            self.load_optimizer(cfg.resume_checkpoint_path)
+
+        # logging
+        self.use_wandb = cfg.get("wandb", None)
+        if self.use_wandb and self.main_rank:
+            wandb.init(
+                entity=cfg.wandb.entity,
+                project=cfg.wandb.project,
+                name=cfg.wandb.run,
+                config=OmegaConf.to_container(cfg, resolve=True),
+                id=self.wandb_id if hasattr(self, "wandb_id") else None,
+                resume="allow",  # not using resume_from
+            )
+        self.debug = cfg.get("debug", False)
 
     def run(self):
         timer = Timer()
-        epoch = 1
-        cnt_batch = 0
-        cnt_update = 0
+        cnt_batch = 0 if not hasattr(self, "cnt_batch") else self.cnt_batch
+        cnt_update = (
+            0 if not hasattr(self, "cnt_update") else self.cnt_update
+        )  # resume training if loaded checkpoint
         loss_train_deque = deque(maxlen=self.grad_accumulation_steps)
-        if self.multi_gpu:
-            import torch.distributed as dist
 
-        for _ in range(self.n_epochs):
-            log.info(f"Epoch {epoch}/{self.n_epochs} starts")
-            for batch_ind, batch in enumerate(self.dataloader):
-                cnt_update_in_epoch = 0
+        while 1:
+            for batch in self.dataloader:
                 """
                 batch: dict with keys 'observation', 'task', 'action', 'dataset_name', 'action_pad_mask'
                 observation: 'image_primary' (torch.Size([bsz, 1, H, W, 3], uint8), 'image_wrist', 'timestep' (torch.Size([bsz, 1])), 'pad_mask_dict', 'timestep_pad_mask', 'task_completed' (torch.Size([bsz, window, 4]), 'proprio' (torch.Size([bsz, window, proprio_dim])
@@ -244,7 +250,7 @@ class TrainAgent:
                     text.decode("utf-8")
                     for text in batch["task"]["language_instruction"]
                 ]
-                if self.debug and batch_ind == 0:
+                if self.debug and cnt_batch == 0:
                     log.info(f"{self.gpu_id} device {self.device}")
                     log.info(f"{self.gpu_id} texts {texts}")
                     log.info(f"{self.gpu_id} images {images.shape}")
@@ -286,23 +292,23 @@ class TrainAgent:
                             loss_train = self.model(**inputs)
                             loss_train_deque.append(loss_train.item())
                         if self.debug:
-                            log_allocated_gpu_memory(log, f"forward batch {batch_ind}")
+                            log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                         # update -- outside autocast
                         normalized_loss = loss_train / self.grad_accumulation_steps
                         normalized_loss.backward()
                         if self.debug:
-                            log_allocated_gpu_memory(log, f"backward batch {batch_ind}")
+                            log_allocated_gpu_memory(log, f"backward batch {cnt_batch}")
                 else:
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
                         loss_train = self.model(**inputs)
                         loss_train_deque.append(loss_train.item())
                     if self.debug:
-                        log_allocated_gpu_memory(log, f"forward batch {batch_ind}")
+                        log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                     # update -- outside autocast
                     normalized_loss = loss_train / self.grad_accumulation_steps
                     normalized_loss.backward()  # now gradients are synced across gpus
                     if self.debug:
-                        log_allocated_gpu_memory(log, f"backward batch {batch_ind}")
+                        log_allocated_gpu_memory(log, f"backward batch {cnt_batch}")
 
                     # step
                     torch.nn.utils.clip_grad_norm_(
@@ -311,32 +317,36 @@ class TrainAgent:
                     )  # not work any more because of offload? no error thrown
                     self.action_optimizer.step()
                     self.action_lr_scheduler.step()
-                    if not self.train_action_only:
+                    if self.train_vlm:
                         self.vlm_optimizer.step()
                         self.vlm_lr_scheduler.step()
                     if self.debug:
                         log_allocated_gpu_memory(
-                            log, f"optimizer step batch {batch_ind}"
+                            log, f"optimizer step batch {cnt_batch}"
                         )
                     self.action_optimizer.zero_grad(set_to_none=True)
-                    if not self.train_action_only:
+                    if self.train_vlm:
                         self.vlm_optimizer.zero_grad(set_to_none=True)
                     if self.debug:
                         log_allocated_gpu_memory(
-                            log, f"optimizer zero grad batch {batch_ind}"
+                            log, f"optimizer zero grad batch {cnt_batch}"
                         )
                     cnt_update += 1
-                    cnt_update_in_epoch += 1
 
-                # TODO: validation with action accuracy
+                    # save model at the end of update, models just synced
+                    if self.main_rank and (
+                        cnt_update % self.save_model_freq == 0
+                        or cnt_update == self.n_updates
+                    ):
+                        self.save_training(cnt_update, cnt_batch)
                 loss_val = None
 
                 # log loss
                 if self.main_rank and cnt_batch % self.log_freq == 0:
                     loss_train_metric = np.mean(loss_train_deque)
-                    log_msg = f"Epoch {epoch} Batch {batch_ind}: t:{timer():8.4f} | train loss {loss_train_metric:8.4f} | action lr: {self.action_optimizer.param_groups[0]['lr']:10.8f}"
-                    if not self.train_action_only:
-                        log_msg += f" | vlm lr: {self.vlm_optimizer.param_groups[0]['lr']:10.8f}"
+                    log_msg = f"Batch {cnt_batch} Update {cnt_update}: t {timer():8.4f} | train loss {loss_train_metric:6.4f} | action lr {self.action_optimizer.param_groups[0]['lr']:10.8f}"
+                    if self.train_vlm:
+                        log_msg += f" | vlm lr {self.vlm_optimizer.param_groups[0]['lr']:10.8f}"
                     log.info(log_msg)
                     if self.use_wandb:
                         wandb_metrics = {
@@ -344,7 +354,7 @@ class TrainAgent:
                             "gradient steps": cnt_update,
                             "action lr": self.action_optimizer.param_groups[0]["lr"],
                         }
-                        if not self.train_action_only:
+                        if self.train_vlm:
                             wandb_metrics["vlm lr"] = self.vlm_optimizer.param_groups[
                                 0
                             ]["lr"]
@@ -354,45 +364,56 @@ class TrainAgent:
 
                 # Count
                 cnt_batch += 1
-
-                # save model at batch level
-                if self.main_rank and cnt_batch % self.save_model_batch_freq == 0:
-                    self.save_model(epoch)
-
-            # Save model at epoch level --- always save at the end
-            if self.main_rank and (
-                epoch % self.save_model_epoch_freq == 0 or epoch == self.n_epochs
-            ):
-                self.save_model(epoch)
-
-            # Count
-            epoch += 1
-            if self.multi_gpu:
-                dist.barrier()
+                if cnt_update >= self.n_updates:
+                    return
 
     @log_execution_time()
-    def save_model(self, epoch):
+    def save_training(self, cnt_update, cnt_batch):
         data = {
-            "epoch": epoch,
+            "cnt_update": cnt_update,
+            "cnt_batch": cnt_batch,
             "model": (
                 self.model.module.state_dict()
                 if self.multi_gpu
                 else self.model.state_dict()
             ),
+            "action_optimizer": self.action_optimizer.state_dict(),
+            "vlm_optimizer": self.vlm_optimizer.state_dict()
+            if self.train_vlm
+            else None,
+            "action_lr_scheduler": self.action_lr_scheduler.state_dict(),
+            "vlm_lr_scheduler": self.vlm_lr_scheduler.state_dict()
+            if self.train_vlm
+            else None,
+            "wandb_id": wandb.run.id if self.use_wandb else None,
         }
-        savepath = os.path.join(self.checkpoint_dir, f"state_{epoch}.pt")
+        savepath = os.path.join(self.checkpoint_dir, f"ckpt_{cnt_update}.pt")
         torch.save(data, savepath)
         log.info(f"Saved model to {savepath}")
 
-    def load_model(self, epoch):
-        # TODO
-        loadpath = os.path.join(self.checkpoint_dir, f"state_{epoch}.pt")
-        data = torch.load(loadpath, weights_only=True)
+    @log_execution_time()
+    def load_checkpoint(self, path):
+        """load to cpu first, then move to gpu"""
+        data = torch.load(path, weights_only=True, map_location="cpu")
+        cnt_update = data["cnt_update"]
+        cnt_batch = data["cnt_batch"]
+        self.model.load_state_dict(data["model"], strict=True)
+        log.info(f"Loaded model from {path} at update {cnt_update} batch {cnt_batch}")
 
-        epoch = data["epoch"]
-        if self.multi_gpu:
-            model = self.model.module
-        else:
-            model = self.model
-        model.load_state_dict(data["model"])
-        return epoch
+        self.wandb_id = data["wandb_id"]
+        return cnt_update, cnt_batch
+
+    @log_execution_time()
+    def load_optimizer(self, path):
+        """load to cpu first, then move to gpu"""
+        from src.utils.optim import optimizer_to
+
+        data = torch.load(path, weights_only=True, map_location="cpu")
+        self.action_optimizer.load_state_dict(data["action_optimizer"])
+        optimizer_to(self.action_optimizer, self.device)
+        self.action_lr_scheduler.load_state_dict(data["action_lr_scheduler"])
+        if self.train_vlm:
+            self.vlm_optimizer.load_state_dict(data["vlm_optimizer"])
+            optimizer_to(self.vlm_optimizer, self.device)
+            self.vlm_lr_scheduler.load_state_dict(data["vlm_lr_scheduler"])
+        log.info(f"Loaded optimizer and scheduler states from {path}")

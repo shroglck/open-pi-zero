@@ -72,6 +72,14 @@ class CosineAnnealingWarmupRestarts:
         # set learning rate min_lr
         self.init_lr()
 
+    def state_dict(self):
+        return {
+            key: value for key, value in self.__dict__.items() if key != "optimizer"
+        }
+
+    def load_state_dict(self, state_dict):
+        self.__dict__.update(state_dict)
+
     def init_lr(self):
         self.base_lrs = []
         for param_group in self.optimizer.param_groups:
@@ -158,3 +166,18 @@ def get_num_params_in_billions(optimizer):
         sum(p.numel() for group in optimizer.param_groups for p in group["params"])
         / 1e9
     )
+
+
+def optimizer_to(optim, device):
+    for param in optim.state.values():
+        # Not sure there are any global tensors in the state dict
+        if isinstance(param, torch.Tensor):
+            param.data = param.data.to(device)
+            if param._grad is not None:
+                param._grad.data = param._grad.data.to(device)
+        elif isinstance(param, dict):
+            for subparam in param.values():
+                if isinstance(subparam, torch.Tensor):
+                    subparam.data = subparam.data.to(device)
+                    if subparam._grad is not None:
+                        subparam._grad.data = subparam._grad.data.to(device)
