@@ -516,7 +516,7 @@ class JointAttention(nn.Module):
             key_states_cached, value_states_cached = kv_cache.get(self.layer_idx)
         for block_idx in range(num_blocks):
             if flag_cached and block_idx in cache_block_indices:
-                # TODO: make this nicer
+                # TODO(allenzren): make this nicer
                 cache_block_idx = cache_block_indices.index(block_idx)
                 key_states_all.append(key_states_cached[cache_block_idx])
                 value_states_all.append(value_states_cached[cache_block_idx])

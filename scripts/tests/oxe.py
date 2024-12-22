@@ -83,14 +83,15 @@ def as_gif(images, path="temp.gif"):
 
 
 def visualize_image(
-    dataset="fractal20220817_data",
-    display_key="image",
+    dataset="bridge_dataset",
+    display_key="image_0",
+    data_dir="/n/fs/llm-unc/data/resize_224",
 ):
     ds, ds_info = tfds.load(
         name=dataset,
-        data_dir="/n/fs/llm-unc/data",
+        data_dir=data_dir,
         download=False,
-        split="train[:10]",
+        split="train[1000:2000]",
         shuffle_files=True,
         with_info=True,
     )
@@ -101,24 +102,43 @@ def visualize_image(
             + "Here is the observation spec:\n"
             + str(ds_info.features["steps"]["observation"])
         )
-    episode = next(iter(ds))
-    images = [step["observation"][display_key] for step in episode["steps"]]
-    images = [Image.fromarray(image.numpy()) for image in images]
-
-    # print image info and save one
-    print(f"Image shape: {images[0].size}")
-    images[0].save(f"temp/{dataset}_sample_img.png")
 
     # save ds_info in text
     with open(f"temp/{dataset}_info.txt", "w") as f:
         f.write(str(ds_info))
+
+    # inspect data
+    iterator = iter(ds)
+    while 1:
+        episode = next(iterator)
+
+        instructions = [
+            step["language_instruction"].numpy().decode("utf-8")
+            for step in episode["steps"]
+        ]
+        images = [step["observation"][display_key] for step in episode["steps"]]
+        images = [Image.fromarray(image.numpy()) for image in images]
+        proprios = [step["observation"]["state"] for step in episode["steps"]]
+        if "carrot" in instructions[0].lower():
+            print(instructions)
+            print(proprios)
+
+            # print image info and save one
+            print(f"Image shape: {images[0].size}")
+            images[0].save(f"temp/{dataset}_sample_img.png")
+            breakpoint()
+
+        # check instructions
+        print(instructions[0])
 
 
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", type=str, default="fractal20220817_data")
+    parser.add_argument("--dataset", type=str, default="bridge_dataset")
+    parser.add_argument("--display_key", type=str, default="image_0")
+    parser.add_argument("--data_dir", type=str, default="/n/fs/llm-unc/data/resize_224")
     args = parser.parse_args()
 
-    visualize_image(dataset=args.dataset)
+    visualize_image(**vars(args))

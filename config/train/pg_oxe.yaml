@@ -45,7 +45,7 @@ wandb:
   run: ${now:%H-%M-%S}_${name}
 
 log_freq: 16
-n_epochs: 10
+n_epochs: 20
 n_updates: ${eval:'2195527 // ${global_batch_size} * ${n_epochs}'}
 save_model_freq: ${eval:'2195527 // ${global_batch_size} * 1'}
 eval_freq: 2000

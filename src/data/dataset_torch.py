@@ -33,7 +33,7 @@ class TorchRLDSDataset(torch.utils.data.IterableDataset):
             yield sample
 
     def __len__(self):
-        # TODO: account for sample weights?
+        # TODO(allenzren): account for sample weights?
         return self._rlds_dataset.true_total_length
         # lengths = np.array(
         #     [
@@ -63,6 +63,9 @@ if __name__ == "__main__":
     parser.add_argument("--mix", type=str, default="bridge")
     parser.add_argument("--camera_views", nargs="*", default=("primary",))
     parser.add_argument("--load_proprio", action="store_true")
+    parser.add_argument(
+        "--skip_norm", action="store_true", help="Use raw actions and proprio"
+    )
     args = parser.parse_args()
 
     # config
@@ -74,6 +77,7 @@ if __name__ == "__main__":
         load_language=True,
         load_proprio=args.load_proprio,
         load_camera_views=args.camera_views,
+        skip_norm=args.skip_norm,
     )
 
     # dataset

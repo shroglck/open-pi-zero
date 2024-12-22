@@ -425,7 +425,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
         # shape: (Batch_Size, Seq_Len, Hidden_Size)
         inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
 
-        # TODO: why not cache this in text generation?
+        # TODO(allenzren): why not cache this in text generation?
         # 2. Merge text and images
         # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
         selected_image_feature = self.vision_tower(pixel_values.type_as(inputs_embeds))

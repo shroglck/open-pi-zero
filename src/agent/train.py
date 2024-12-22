@@ -92,10 +92,9 @@ class TrainAgent:
                 static_graph=False,
             )
             model = self.model.module
+            dist.barrier()
         else:
             model = self.model
-        if self.multi_gpu:
-            dist.barrier()
         log_allocated_gpu_memory(log, "loading model")
 
         # determine batch size and gradient accumulation steps
@@ -255,7 +254,7 @@ class TrainAgent:
             )  # remove cond_steps dimension
             model_inputs = self.processor(
                 text=texts, images=images
-            )  # TODO: move to dataset pre-processing
+            )  # TODO(allenzren): move to dataset pre-processing
             return {
                 "pixel_values": model_inputs["pixel_values"].to(self.device),
                 "input_ids": model_inputs["input_ids"].to(self.device),

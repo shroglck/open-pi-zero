@@ -231,6 +231,10 @@ class VLA(nn.Module, NoSyncBase):
             if self.joint_model._check_gemma_unused_parameter_by_name(name):
                 param.requires_grad = False
 
+    def freeze_all_weights(self):
+        for _, param in self.named_parameters():
+            param.requires_grad = False
+
     def tie_weights(self):
         self.lm_head.weight = self.embed_tokens.weight
 

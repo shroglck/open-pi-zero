@@ -34,7 +34,7 @@ def _main(cfg: OmegaConf):
     OmegaConf.resolve(cfg)
 
     # figure out the current gpu
-    multi_gpu = torch.cuda.device_count() > 1 or cfg.n_nodes > 1
+    multi_gpu = torch.cuda.device_count() > 1 or cfg.get("n_nodes", 1) > 1
     if multi_gpu:
         from torch.distributed import destroy_process_group, init_process_group
 
