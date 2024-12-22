@@ -101,21 +101,23 @@ vision:
     layer_norm_eps: 1e-6
     attention_dropout: 0.0
     num_image_tokens: 256
-    lora_r: ${lora_r}
-    lora_dropout: ${lora_dropout}
-  quantize: ${quantize}
-  lora: ${lora}
+    lora:
+      r: ${lora_r}
+      dropout: ${lora_dropout}
+  use_quantize: ${quantize}
+  use_lora: ${lora}
 
 vision_projector:
   _target_: src.model.paligemma.siglip.PaliGemmaMultiModalProjector
   config:
-    lora_r: ${lora_r}
-    lora_dropout: ${lora_dropout}
     vision_config:
       hidden_size: 1152
       projection_dim: ${image_text_hidden_size}
-  quantize: ${quantize}
-  lora: ${lora}
+    lora:
+      r: ${lora_r}
+      dropout: ${lora_dropout}
+  use_quantize: ${quantize}
+  use_lora: ${lora}
 
 joint:
   _target_: src.model.vla.modules.JointModel
@@ -130,8 +132,9 @@ joint:
       - 16384 # gemma
       - 1024
       - 4096
-    lora_r: ${lora_r}
-    lora_dropout: ${lora_dropout}
+    lora:
+      r: ${lora_r}
+      dropout: ${lora_dropout}
     #
     num_hidden_layers: 18
     num_attention_heads: 8
@@ -143,5 +146,5 @@ joint:
     attention_bias: False
     attention_dropout: 0.0
     pad_token_id: ${pad_token_id}
-  quantize: ${quantize}
-  lora: ${lora}
+  use_quantize: ${quantize}
+  use_lora: ${lora}

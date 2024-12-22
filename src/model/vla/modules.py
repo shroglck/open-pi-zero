@@ -36,10 +36,15 @@ from src.model.paligemma.utils import (
 
 
 class JointModel(nn.Module):
-    def __init__(self, config, quantize: bool = False, lora: bool = False):
+    def __init__(
+        self,
+        config,
+        use_quantize: bool = False,
+        use_lora: bool = False,
+    ):
         super().__init__()
-        config.quantize = quantize
-        config.lora = lora
+        config.use_quantize = use_quantize
+        config.use_lora = use_lora
         self.config = config
         self.num_hidden_layers = config.num_hidden_layers
         (
@@ -246,8 +251,8 @@ class JointDecoderLayer(nn.Module):
             if block_index != 0:  # only quantize or lora for image/text block
                 quantize, lora = False, False
             else:
-                quantize, lora = config.quantize, config.lora
-            self.mlp.append(GemmaMLP(mlp_config, quantize=quantize, lora=lora))
+                quantize, lora = config.use_quantize, config.use_lora
+            self.mlp.append(GemmaMLP(mlp_config, use_quantize=quantize, use_lora=lora))
 
         self.input_layernorms = nn.ModuleList()
         self.post_attention_layernorms = nn.ModuleList()
@@ -426,7 +431,9 @@ class JointAttention(nn.Module):
 
         # only quantize or lora for image/text block
         image_text_layer = get_layer(
-            config.quantize, config.lora, r=config.lora_r, dropout=config.lora_dropout
+            config.use_quantize,
+            config.use_lora,
+            **config.lora if config.use_lora else {},
         )
         layers = [image_text_layer] + [nn.Linear for _ in range(2)]
         self.q_projs = nn.ModuleList(

@@ -11,7 +11,12 @@ from src.model.paligemma.utils import KVCache, apply_rotary_pos_emb, repeat_kv
 
 
 class GemmaAttention(nn.Module):
-    def __init__(self, config, layer_idx: Optional[int] = None, quantize: bool = False):
+    def __init__(
+        self,
+        config,
+        layer_idx: Optional[int] = None,
+        use_quantize: bool = False,
+    ):
         super().__init__()
         self.config = config
         self.layer_idx = layer_idx
@@ -28,7 +33,7 @@ class GemmaAttention(nn.Module):
 
         assert self.hidden_size % self.num_heads == 0
 
-        layer = get_layer(quantize=quantize)
+        layer = get_layer(quantize=use_quantize)
         self.q_proj = layer(
             self.hidden_size,
             self.num_heads * self.head_dim,
@@ -134,15 +139,22 @@ class GemmaAttention(nn.Module):
 
 
 class GemmaDecoderLayer(nn.Module):
-    def __init__(self, config, layer_idx: int, quantize: bool = False):
+    def __init__(
+        self,
+        config,
+        layer_idx: int,
+        use_quantize: bool = False,
+    ):
         super().__init__()
         self.hidden_size = config.hidden_size
 
         self.self_attn = GemmaAttention(
-            config=config, layer_idx=layer_idx, quantize=quantize
+            config=config,
+            layer_idx=layer_idx,
+            use_quantize=use_quantize,
         )
 
-        self.mlp = GemmaMLP(config, quantize=quantize)
+        self.mlp = GemmaMLP(config, use_quantize=use_quantize)
         self.input_layernorm = GemmaRMSNorm(config.hidden_size, eps=config.rms_norm_eps)
         self.post_attention_layernorm = GemmaRMSNorm(
             config.hidden_size, eps=config.rms_norm_eps
@@ -187,7 +199,7 @@ class GemmaDecoderLayer(nn.Module):
 
 
 class GemmaModel(nn.Module):
-    def __init__(self, config, quantize: bool = False):
+    def __init__(self, config, use_quantize: bool = False):
         super().__init__()
         self.config = config
         self.padding_idx = config.pad_token_id
@@ -198,7 +210,7 @@ class GemmaModel(nn.Module):
         )
         self.layers = nn.ModuleList(
             [
-                GemmaDecoderLayer(config, layer_idx, quantize=quantize)
+                GemmaDecoderLayer(config, layer_idx, use_quantize=use_quantize)
                 for layer_idx in range(config.num_hidden_layers)
             ]
         )
@@ -240,10 +252,10 @@ class GemmaModel(nn.Module):
 
 
 class GemmaForCausalLM(nn.Module):
-    def __init__(self, config, quantize: bool = False):
+    def __init__(self, config, use_quantize: bool = False):
         super().__init__()
         self.config = config
-        self.model = GemmaModel(config, quantize=quantize)
+        self.model = GemmaModel(config, use_quantize=use_quantize)
         self.vocab_size = config.vocab_size
         self.lm_head = nn.Linear(
             config.hidden_size, config.vocab_size, bias=False
@@ -286,17 +298,19 @@ class GemmaForCausalLM(nn.Module):
 
 
 class PaliGemmaForConditionalGeneration(nn.Module):
-    def __init__(self, config, quantize: bool = False):
+    def __init__(self, config, use_quantize: bool = False):
         super().__init__()
         self.config = config
 
-        self.vision_tower = SiglipVisionModel(config.vision_config, quantize=quantize)
+        self.vision_tower = SiglipVisionModel(
+            config.vision_config, use_quantize=use_quantize
+        )
         self.multi_modal_projector = PaliGemmaMultiModalProjector(
-            config, quantize=quantize
+            config, use_quantize=use_quantize
         )
         self.vocab_size = config.vocab_size
 
-        language_model = GemmaForCausalLM(config.text_config, quantize=quantize)
+        language_model = GemmaForCausalLM(config.text_config, use_quantize=use_quantize)
         self.language_model = language_model
 
         self.pad_token_id = (

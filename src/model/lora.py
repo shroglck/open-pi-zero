@@ -81,7 +81,10 @@ def transpose(weight: torch.Tensor, fan_in_fan_out: bool) -> torch.Tensor:
 
 
 def get_layer(
-    quantize: bool = False, lora: bool = False, r: int = 32, dropout: float = 0.05
+    quantize: bool = False,
+    lora: bool = False,
+    r: int = 32,
+    dropout: float = 0.05,
 ):
     if quantize and lora:
         return lambda *args, **kwargs: LoRALinear4bit(

@@ -104,14 +104,16 @@ class GemmaRotaryEmbedding(nn.Module):
 
 
 class GemmaMLP(nn.Module):
-    def __init__(self, config, quantize=False, lora=False):
+    def __init__(self, config, use_quantize=False, use_lora=False):
         super().__init__()
         self.config = config
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
 
         layer = get_layer(
-            quantize=quantize, lora=lora, r=config.lora_r, dropout=config.lora_dropout
+            use_quantize,
+            use_lora,
+            **config.lora if use_lora else {},
         )
         self.gate_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
         self.up_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
