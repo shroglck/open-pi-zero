@@ -135,7 +135,7 @@ def parse_examples_from_generator(
     generator = fcn(split=split_name + f"[{episodes[0]}:{upper_str}]")
     outputs = []
     for key, sample in utils.tqdm(
-        zip(episodes, generator, strict=False),
+        zip(episodes, generator),
         desc=f"Generating {split_name} examples...",
         unit=" examples",
         total=total_num_examples,
@@ -239,7 +239,7 @@ class ParallelSplitBuilder(split_builder_lib.SplitBuilder):
 
 def dictlist2listdict(DL):
     "Converts a dict of lists to a list of dicts"
-    return [dict(zip(DL, t, strict=False)) for t in zip(*DL.values(), strict=False)]
+    return [dict(zip(DL, t)) for t in zip(*DL.values())]
 
 
 def chunks(seq, n):

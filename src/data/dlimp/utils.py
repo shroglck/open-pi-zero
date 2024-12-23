@@ -55,7 +55,7 @@ def vmap(fn: Callable) -> Callable:
             lambda *x: tf.stack(x),
             *[
                 fn(tf.nest.pack_sequence_as(structure, x))
-                for x in zip(*map(tf.unstack, tf.nest.flatten(structure)), strict=False)
+                for x in zip(*map(tf.unstack, tf.nest.flatten(structure)))
             ],
         )
 

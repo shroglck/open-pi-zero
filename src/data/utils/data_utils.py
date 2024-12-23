@@ -74,7 +74,7 @@ def pprint_data_mixture(
         f"# Loading the following {len(dataset_kwargs_list)} datasets (incl. sampling weight):{'': >24} #"
     )
     for dataset_kwargs, weight in zip(
-        dataset_kwargs_list, dataset_weights, strict=False
+        dataset_kwargs_list, dataset_weights
     ):
         pad = 80 - len(dataset_kwargs["name"])
         print(f"# {dataset_kwargs['name']}: {weight:=>{pad}f} #")
@@ -214,7 +214,7 @@ def combine_dataset_statistics(
         combined_mean = np.array(
             [
                 stat[key]["mean"] * w
-                for stat, w in zip(all_dataset_statistics, stat_weights, strict=False)
+                for stat, w in zip(all_dataset_statistics, stat_weights)
             ]
         ).sum(0)
         # compute combined_std for denominator `n` instead of `n-1` since numpy uses that by default for std
@@ -225,7 +225,7 @@ def combine_dataset_statistics(
                     n * np.array(stat[key]["std"]) ** 2
                     + n * (np.array(stat[key]["mean"]) - combined_mean) ** 2
                     for stat, n in zip(
-                        all_dataset_statistics, num_transitions, strict=False
+                        all_dataset_statistics, num_transitions
                     )
                 ]
             ).sum(0)

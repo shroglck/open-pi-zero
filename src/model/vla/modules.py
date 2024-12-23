@@ -243,7 +243,7 @@ class JointDecoderLayer(nn.Module):
 
         self.mlp = nn.ModuleList()
         for block_index, (hidden_size, intermediate_size) in enumerate(
-            zip(config.hidden_sizes, config.intermediate_sizes, strict=False)
+            zip(config.hidden_sizes, config.intermediate_sizes)
         ):
             mlp_config = config
             config.hidden_size = hidden_size
@@ -296,9 +296,7 @@ class JointDecoderLayer(nn.Module):
         residuals = hidden_states_all
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_pre = []
-        for hidden_states, layernorm in zip(
-            hidden_states_all, self.input_layernorms, strict=False
-        ):
+        for hidden_states, layernorm in zip(hidden_states_all, self.input_layernorms):
             if isinstance(layernorm, AdaptiveRMSNorm):
                 hidden_states_pre.append(layernorm(hidden_states, time_embeds))
             else:
@@ -315,7 +313,7 @@ class JointDecoderLayer(nn.Module):
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_pre_res = []
         for block_index, (residual, hidden_states) in enumerate(
-            zip(residuals, hidden_states_all, strict=False)
+            zip(residuals, hidden_states_all)
         ):
             if self.final_layer and block_index != 2:
                 hidden_states_pre_res.append(None)
@@ -331,7 +329,7 @@ class JointDecoderLayer(nn.Module):
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_post = []
         for block_index, (hidden_states, layernorm) in enumerate(
-            zip(hidden_states_pre_res, self.post_attention_layernorms, strict=False)
+            zip(hidden_states_pre_res, self.post_attention_layernorms)
         ):
             if self.final_layer and block_index != 2:
                 hidden_states_post.append(None)
@@ -343,7 +341,7 @@ class JointDecoderLayer(nn.Module):
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_mlp = []
         for block_index, (hidden_states, mlp) in enumerate(
-            zip(hidden_states_post, self.mlp, strict=False)
+            zip(hidden_states_post, self.mlp)
         ):
             if self.final_layer and block_index != 2:
                 hidden_states_mlp.append(None)
@@ -353,7 +351,7 @@ class JointDecoderLayer(nn.Module):
         # [Batch_Size, Seq_Len, Hidden_Size]
         hidden_states_final = []
         for block_index, (residual, hidden_states) in enumerate(
-            zip(residuals, hidden_states_mlp, strict=False)
+            zip(residuals, hidden_states_mlp)
         ):
             if self.final_layer and block_index != 2:
                 hidden_states_final.append(None)
@@ -443,7 +441,7 @@ class JointAttention(nn.Module):
                     self.num_heads * self.head_dim,
                     bias=config.attention_bias,
                 )
-                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
+                for layer, hidden_size in zip(layers, self.hidden_sizes)
             ]
         )
         self.k_projs = nn.ModuleList(
@@ -453,7 +451,7 @@ class JointAttention(nn.Module):
                     self.num_key_value_heads * self.head_dim,
                     bias=config.attention_bias,
                 )
-                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
+                for layer, hidden_size in zip(layers, self.hidden_sizes)
             ]
         )
         self.v_projs = nn.ModuleList(
@@ -463,7 +461,7 @@ class JointAttention(nn.Module):
                     self.num_key_value_heads * self.head_dim,
                     bias=config.attention_bias,
                 )
-                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
+                for layer, hidden_size in zip(layers, self.hidden_sizes)
             ]
         )
         self.o_projs = nn.ModuleList(
@@ -473,7 +471,7 @@ class JointAttention(nn.Module):
                     hidden_size,
                     bias=config.attention_bias,
                 )
-                for layer, hidden_size in zip(layers, self.hidden_sizes, strict=False)
+                for layer, hidden_size in zip(layers, self.hidden_sizes)
             ]
         )
         self.rotary_emb = GemmaRotaryEmbedding(

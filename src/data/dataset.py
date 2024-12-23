@@ -558,7 +558,6 @@ def make_interleaved_dataset(
         dataset_kwargs_list,
         threads_per_dataset,
         reads_per_dataset,
-        strict=False,
     ):
         dataset_statistics = all_dataset_statistics[dataset_kwargs["name"]]
         dataset, _, dataset_len = make_dataset_from_rlds(

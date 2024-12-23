@@ -152,9 +152,7 @@ class CosineAnnealingWarmupRestarts:
 
         self.max_lr = self.base_max_lr * (self.gamma**self.cycle)
         self.last_epoch = math.floor(epoch)
-        for param_group, lr in zip(
-            self.optimizer.param_groups, self.get_lr(), strict=False
-        ):
+        for param_group, lr in zip(self.optimizer.param_groups, self.get_lr()):
             if isinstance(param_group["lr"], torch.Tensor):
                 param_group["lr"].fill_(lr)
             else:

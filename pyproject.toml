@@ -45,7 +45,7 @@ extend-exclude = ["src/data/obs_transforms.py", "src/data/utils/data_utils.py"]
 
 [tool.ruff.lint]
 select = ["A", "B", "E", "F", "I", "RUF", "W"]
-ignore = ["E203", "E501", "B006", "B026"]
+ignore = ["E203", "E501", "B006", "B026", "B905"]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["E402", "F401", "F403"]
