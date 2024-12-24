@@ -9,7 +9,11 @@ from safetensors import safe_open
 from torch import nn
 
 from src.model.paligemma.utils import JointKVCache, KVCache
-from src.model.vla.modules import ActionEncoder, SinusoidalPosEmb
+from src.model.vla.modules import (
+    ActionEncoder,
+    GaussianFourierFeatureTransform,
+    SinusoidalPosEmb,
+)
 from src.model.vla.utils import sample_from_transformed_beta
 from src.utils.dummy import NoSyncBase
 from src.utils.monitor import log_execution_time
@@ -66,17 +70,32 @@ class VLA(nn.Module, NoSyncBase):
         # lm + action expert
         self.joint_model = hydra.utils.instantiate(cfg.joint)
 
+        # Fourier features
+        self.use_fourier_features = cfg.use_fourier_features
+        if cfg.use_fourier_features:
+            self.action_fourier_transform = GaussianFourierFeatureTransform(
+                cfg.action_dim, cfg.action_proprio_fourier_dim
+            )
+            self.proprio_fourier_transform = GaussianFourierFeatureTransform(
+                cfg.proprio_dim, cfg.action_proprio_fourier_dim
+            )
+            action_input_dim = cfg.action_proprio_fourier_dim * 2
+            proprio_input_dim = cfg.action_proprio_fourier_dim * 2
+        else:
+            action_input_dim = cfg.action_dim
+            proprio_input_dim = cfg.proprio_dim
+
         # Action, proprio, time encoders
         if cfg.action_expert_adaptive_mode:
             self.action_encoder = ActionEncoder(
-                cfg.action_dim,
+                action_input_dim,
                 cfg.action_hidden_size,
                 time_cond=False,
             )
             self.time_embedding = SinusoidalPosEmb(cfg.time_hidden_size)
         else:  # matching pi0
             self.action_encoder = ActionEncoder(
-                cfg.action_dim,
+                action_input_dim,
                 cfg.action_hidden_size,
                 time_cond=True,
             )
@@ -84,7 +103,7 @@ class VLA(nn.Module, NoSyncBase):
         self.action_expert_adaptive_mode = cfg.action_expert_adaptive_mode
 
         self.proprio_encoder = nn.Linear(
-            cfg.proprio_dim,
+            proprio_input_dim,
             cfg.proprio_hidden_size,
         )
 
@@ -404,7 +423,10 @@ class VLA(nn.Module, NoSyncBase):
             position_ids_all,
         ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
 
-        # Encode proprio
+        # Encode proprio and apply Fourier features
+        if self.use_fourier_features:
+            # [Batch_Size, Cond_Steps, Fourier_Dim]
+            proprios = self.proprio_fourier_transform(proprios)
         proprio_embeds = self.proprio_encoder(proprios)
 
         # Sample pure action noise
@@ -425,11 +447,17 @@ class VLA(nn.Module, NoSyncBase):
         for _ in range(self.num_inference_steps):
             # encode action and time into embedding
             time_embeds = self.time_embedding(t)
+            # apply Fourier features
+            if self.use_fourier_features:
+                # [Batch_Size, Horizon_Steps, Fourier_Dim]
+                action_embeds = self.action_fourier_transform(action)
+            else:
+                action_embeds = action
             # [Batch_Size, Horizon_Steps, Embed_Dim]
             if self.action_expert_adaptive_mode:
-                action_embeds = self.action_encoder(action)
+                action_embeds = self.action_encoder(action_embeds)
             else:
-                action_embeds = self.action_encoder(action, time_embeds)
+                action_embeds = self.action_encoder(action_embeds, time_embeds)
             # forward thru joint model with block attention
             # [Batch_Size, Horizon_Steps, Embed_Dim]
             action_embeds = self.joint_model(
@@ -539,6 +567,13 @@ class VLA(nn.Module, NoSyncBase):
             causal_mask,
             position_ids_all,
         ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
+
+        # Apply Fourier features
+        if self.use_fourier_features:
+            # [Batch_Size, Horizon_Steps, Fourier_Dim]
+            psi_t = self.action_fourier_transform(psi_t)
+            # [Batch_Size, Cond_Steps, Fourier_Dim]
+            proprios = self.proprio_fourier_transform(proprios)
 
         # Encode proprio
         proprio_embeds = self.proprio_encoder(proprios)

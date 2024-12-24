@@ -767,6 +767,31 @@ class ActionEncoder(nn.Module):
         return emb
 
 
+class GaussianFourierFeatureTransform(torch.nn.Module):
+    """
+    "Fourier Features Let Networks Learn High Frequency Functions in Low Dimensional Domains":
+       https://arxiv.org/abs/2006.10739
+       https://people.eecs.berkeley.edu/~bmild/fourfeat/index.html
+    """
+
+    def __init__(
+        self,
+        input_dim,
+        embed_dim=256,
+        scale=10,
+    ):
+        super(GaussianFourierFeatureTransform, self).__init__()
+        self.b = torch.randn(input_dim, embed_dim) * scale
+        self.pi = 3.14159265359
+
+    def forward(
+        self,
+        v: torch.FloatTensor,
+    ) -> torch.FloatTensor:
+        x_proj = torch.matmul(2 * self.pi * v, self.b.to(v.device))
+        return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], -1)
+
+
 if __name__ == "__main__":
     from omegaconf import OmegaConf
 

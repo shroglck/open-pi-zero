@@ -364,9 +364,10 @@ class TrainAgent:
                         len(self.eval_thresholds), device=self.device
                     )
                     eval_l1_loss = torch.tensor(0.0, device=self.device)
-                    log.info(
-                        f"Running evaluation for {self.per_device_num_eval_batch} batches..."
-                    )
+                    if self.main_rank:
+                        log.info(
+                            f"Running evaluation for {self.per_device_num_eval_batch} batches..."
+                        )
                     with torch.no_grad():
                         for _ in range(self.per_device_num_eval_batch):
                             batch_eval = next(self.val_dataiterator)
@@ -393,16 +394,17 @@ class TrainAgent:
                         dist.all_reduce(eval_l1_loss, op=dist.ReduceOp.SUM)
                         eval_accuracy /= dist.get_world_size()
                         eval_l1_loss /= dist.get_world_size()
-                    log_msg = f"Eval | l1 Loss: {eval_l1_loss.item():.3f} | "
-                    log_msg += " | ".join(
-                        [
-                            f"acc thres {threshold}: {accuracy.item():.3f}"
-                            for threshold, accuracy in zip(
-                                self.eval_thresholds, eval_accuracy, strict=False
-                            )
-                        ]
-                    )
-                    log.info(log_msg)
+                    if self.main_rank:
+                        log_msg = f"Eval | l1 Loss: {eval_l1_loss.item():.3f} | "
+                        log_msg += " | ".join(
+                            [
+                                f"acc thres {threshold}: {accuracy.item():.3f}"
+                                for threshold, accuracy in zip(
+                                    self.eval_thresholds, eval_accuracy
+                                )
+                            ]
+                        )
+                        log.info(log_msg)
 
                 # log loss
                 if self.main_rank and cnt_batch % self.log_freq == 0:
@@ -426,9 +428,7 @@ class TrainAgent:
                                 {
                                     f"eval acc - thres {threshold}": accuracy.item()
                                     for threshold, accuracy in zip(
-                                        self.eval_thresholds,
-                                        eval_accuracy,
-                                        strict=False,
+                                        self.eval_thresholds, eval_accuracy
                                     )
                                 }
                             )

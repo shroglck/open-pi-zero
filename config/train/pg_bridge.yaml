@@ -14,6 +14,7 @@ pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
 load_pretrained_weights: True
 resume_checkpoint_path:
 train_vlm: True
+use_fourier_features: True
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False
@@ -83,6 +84,7 @@ image_text_hidden_size: 2048  # gemma
 proprio_hidden_size: 512
 action_hidden_size: 1024
 time_hidden_size: 256 # if using adaptive
+action_proprio_fourier_dim: 256
 
 # Fixed
 image_token_index: 257152
