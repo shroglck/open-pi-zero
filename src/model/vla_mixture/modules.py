@@ -168,8 +168,14 @@ def forward_mixture_attn(
         if flag_cached_mixture:
             key_states_cached, value_states_cached = kv_caches[name].get(
                 layer_idx
-            )  # take the existing cache at the layer
+            )  # take the existing cache at the layer, already applied rotary
             print("layer", layer_idx, "use cache", key_states_cached.shape)
+
+        # prep rotary embeddings
+        query_states = query_states_all[name]
+        cos, sin = mixtures[name].attn_func(
+            "forward_rotary_emb", layer_idx, position_ids_all[name]
+        )
 
         # always compute new ones if cache_mode is append
         key_states_new, value_states_new = None, None
@@ -183,18 +189,12 @@ def forward_mixture_attn(
                 "forward_v_proj", layer_idx, hidden_states
             )
 
-            # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
-            assert (
-                query_states_all[name].shape[-2] == key_states_new.shape[-2]
-            ), "Q and K shoud match token length when computing rotary embeddings"
-            query_states, key_states_new = mixtures[name].attn_func(
-                "forward_rotary_emb",
-                layer_idx,
-                query_states_all[name],  # only the new token
-                key_states_new,
-                position_ids_all[name],
+            # [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
+            key_states_new = mixtures[name].attn_func(
+                "forward_apply_rotary_emb", layer_idx, key_states_new, cos, sin
             )
             print("layer", layer_idx, "compute", key_states_new.shape)
+            print("layer", layer_idx, "k rotary updated")
 
             # always cache in append mode, or cache if no cache yet in fixed mode
             if flag_to_cache_mixture:
@@ -210,8 +210,13 @@ def forward_mixture_attn(
                     kv_caches[name].key_cache[layer_idx].shape,
                 )
 
-            # update Q after rotary embeddings
-            query_states_all[name] = query_states
+        # always apply rotary embeddings to Q
+        # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim]
+        query_states = mixtures[name].attn_func(
+            "forward_apply_rotary_emb", layer_idx, query_states, cos, sin
+        )
+        query_states_all[name] = query_states
+        print("layer", layer_idx, "q rotary updated")
 
         # assign K and V carefully
         if flag_cached_mixture:
