@@ -21,9 +21,8 @@ uv run src/model/vla/modules.py
 
 Text generation with original implementaton
 ```console
-git clone https://huggingface.co/google/paligemma2-3b-pt-224    # at desired cache location
+git clone https://huggingface.co/google/paligemma-3b-pt-224    # at TRANSFORMERS_CACHE
 uv run scripts/tests/run_paligemma.py \
-    --model_path "/n/fs/llm-unc/.cache/paligemma-3b-pt-224" \
     --prompt "this image shows " \
     --image_file_path "media/maniskill_pp.png" \
     --max_tokens_to_generate 100 \

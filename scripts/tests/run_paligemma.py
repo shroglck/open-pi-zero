@@ -1,3 +1,4 @@
+import os
 import time
 
 import torch
@@ -106,7 +107,6 @@ def _sample_top_p(probs: torch.Tensor, p: float):
 
 
 def main(
-    model_path,
     prompt,
     image_file_path,
     max_tokens_to_generate: int = 100,
@@ -117,6 +117,7 @@ def main(
     quantize: bool = False,
 ):
     device = "cpu"
+    model_path = f"{os.environ['TRANSFORMERS_CACHE']}/paligemma-3b-pt-224"
 
     if not only_cpu:
         if torch.cuda.is_available():
@@ -162,7 +163,6 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model_path", type=str)
     parser.add_argument("--prompt", type=str)
     parser.add_argument("--image_file_path", type=str)
     parser.add_argument("--max_tokens_to_generate", type=int, default=100)

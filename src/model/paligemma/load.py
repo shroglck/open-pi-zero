@@ -37,7 +37,7 @@ def load_hf_model(
         config = PaliGemmaConfig(**model_config_file)
 
     # Create the model using the configuration
-    model = PaliGemmaForConditionalGeneration(config, quantize=quantize)
+    model = PaliGemmaForConditionalGeneration(config, use_quantize=quantize)
 
     # Load the state dict of the model
     model.load_state_dict(tensors, strict=False)
