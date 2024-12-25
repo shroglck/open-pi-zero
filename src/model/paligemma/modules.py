@@ -81,10 +81,10 @@ class GemmaRotaryEmbedding(nn.Module):
         )
         self.register_buffer("inv_freq", tensor=inv_freq, persistent=False)
 
+    @torch.compile
     @torch.no_grad()
-    def forward(self, x, position_ids, seq_len=None):
+    def forward(self, position_ids, seq_len=None):
         # x: [bs, num_attention_heads, seq_len, head_size]
-        self.inv_freq.type_as(x)
         # Copy the inv_freq tensor for batch in the sequence
         # inv_freq_expanded: [Batch_Size, Head_Dim // 2, 1]
         inv_freq_expanded = self.inv_freq[None, :, None].expand(

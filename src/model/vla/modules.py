@@ -540,10 +540,9 @@ class JointAttention(nn.Module):
         for block_idx in range(num_blocks):
             query_states = query_states_all[block_idx]
             key_states = key_states_all[block_idx]
-            value_states = value_states_all[block_idx]
             position_ids = position_ids_all[block_idx]
             # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
-            cos, sin = self.rotary_emb(value_states, position_ids, seq_len=None)
+            cos, sin = self.rotary_emb(position_ids, seq_len=None)
             # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
             query_states, key_states = apply_rotary_pos_emb(
                 query_states, key_states, cos, sin
@@ -654,7 +653,7 @@ class JointAttention(nn.Module):
         ).transpose(1, 2)
 
         # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
-        cos, sin = self.rotary_emb(value_states, position_ids, seq_len=None)
+        cos, sin = self.rotary_emb(position_ids, seq_len=None)
         # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
         query_states, key_states = apply_rotary_pos_emb(
             query_states, key_states, cos, sin

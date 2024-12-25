@@ -90,12 +90,13 @@ class GemmaAttention(nn.Module):
         ).transpose(1, 2)
 
         # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
-        cos, sin = self.rotary_emb(value_states, position_ids, seq_len=None)
+        cos, sin = self.rotary_emb(position_ids, seq_len=None)
         # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
         query_states, key_states = apply_rotary_pos_emb(
             query_states, key_states, cos, sin
         )
 
+        # cache after rotary embedding
         if kv_cache is not None:
             key_states, value_states = kv_cache.update(
                 key_states, value_states, self.layer_idx
