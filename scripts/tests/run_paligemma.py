@@ -4,9 +4,9 @@ import time
 import torch
 from PIL import Image
 
+from src.model.kv_cache import KVCache
 from src.model.paligemma.load import load_hf_model
 from src.model.paligemma.processing import PaliGemmaProcessor
-from src.model.paligemma.utils import KVCache
 from src.utils.monitor import log_allocated_gpu_memory
 
 

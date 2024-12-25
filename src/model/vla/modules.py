@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 import torch
 import torch.nn as nn
 
+from src.model.kv_cache import JointKVCache, KVCache
 from src.model.lora import get_layer
 from src.model.paligemma.modules import (
     AdaptiveLayerscale,
@@ -13,8 +14,6 @@ from src.model.paligemma.modules import (
     GemmaRotaryEmbedding,
 )
 from src.model.paligemma.utils import (
-    JointKVCache,
-    KVCache,
     apply_rotary_pos_emb,
     repeat_kv,
 )

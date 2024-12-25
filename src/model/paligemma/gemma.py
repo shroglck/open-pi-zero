@@ -4,10 +4,11 @@ from typing import Optional, Tuple
 import torch
 from torch import nn
 
+from src.model.kv_cache import KVCache
 from src.model.lora import get_layer
 from src.model.paligemma.modules import GemmaMLP, GemmaRMSNorm, GemmaRotaryEmbedding
 from src.model.paligemma.siglip import PaliGemmaMultiModalProjector, SiglipVisionModel
-from src.model.paligemma.utils import KVCache, apply_rotary_pos_emb, repeat_kv
+from src.model.paligemma.utils import apply_rotary_pos_emb, repeat_kv
 
 
 class GemmaAttention(nn.Module):

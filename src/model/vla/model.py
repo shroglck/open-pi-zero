@@ -8,7 +8,7 @@ import torch
 from safetensors import safe_open
 from torch import nn
 
-from src.model.paligemma.utils import JointKVCache, KVCache
+from src.model.kv_cache import JointKVCache, KVCache
 from src.model.vla.modules import (
     ActionEncoder,
     GaussianFourierFeatureTransform,
@@ -626,6 +626,7 @@ if __name__ == "__main__":
     config = OmegaConf.load("config/train/pg_bridge.yaml")
     if args.text_only:
         config.use_lm_head = True
+        config.joint.config.use_lm_head = True
     device = "cpu" if args.cpu else "cuda"
     model = VLA(config).to(device)
     if args.load_pretrained_weights:
