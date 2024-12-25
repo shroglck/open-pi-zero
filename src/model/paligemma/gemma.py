@@ -285,16 +285,12 @@ class GemmaForCausalLM(nn.Module):
 
         hidden_states = outputs
         logits = self.lm_head(hidden_states)
-
-        return_data = {
+        output = {
             "logits": logits,
         }
-
         if kv_cache is not None:
-            # Return the updated cache
-            return_data["kv_cache"] = kv_cache
-
-        return return_data
+            output["kv_cache"] = kv_cache
+        return output
 
 
 class PaliGemmaForConditionalGeneration(nn.Module):

@@ -86,6 +86,7 @@ class VLA(nn.Module, NoSyncBase):
             proprio_input_dim = cfg.proprio_dim
 
         # Action, proprio, time encoders
+        self.action_expert_adaptive_mode = cfg.action_expert_adaptive_mode
         if cfg.action_expert_adaptive_mode:
             self.action_encoder = ActionEncoder(
                 action_input_dim,
@@ -100,8 +101,6 @@ class VLA(nn.Module, NoSyncBase):
                 time_cond=True,
             )
             self.time_embedding = SinusoidalPosEmb(cfg.action_hidden_size)
-        self.action_expert_adaptive_mode = cfg.action_expert_adaptive_mode
-
         self.proprio_encoder = nn.Linear(
             proprio_input_dim,
             cfg.proprio_hidden_size,
@@ -110,7 +109,7 @@ class VLA(nn.Module, NoSyncBase):
         # Action decoder
         self.action_decoder = nn.Linear(
             cfg.action_hidden_size,
-            cfg.action_dim,  # full chunk
+            cfg.action_dim,
         )
 
         # optional text output
@@ -510,12 +509,12 @@ class VLA(nn.Module, NoSyncBase):
             kv_cache=kv_cache,
         )
         logits = self.lm_head(hidden_states)
-        return_data = {
+        output = {
             "logits": logits,
         }
         if kv_cache is not None:
-            return_data["kv_cache"] = kv_cache
-        return return_data
+            output["kv_cache"] = kv_cache
+        return output
 
     # ---------- Flow matching training ----------#
 
@@ -624,7 +623,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     assert not (args.text_only and args.loss_only)
 
-    config = OmegaConf.load("config/train/pg_oxe.yaml")
+    config = OmegaConf.load("config/train/pg_bridge.yaml")
     if args.text_only:
         config.use_lm_head = True
     device = "cpu" if args.cpu else "cuda"

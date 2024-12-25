@@ -154,7 +154,5 @@ class PaliGemmaProcessor:
             padding=padding,
             truncation=truncation,
         )
-
-        return_data = {"pixel_values": pixel_values, **inputs}
-
-        return return_data
+        output = {"pixel_values": pixel_values, **inputs}
+        return output

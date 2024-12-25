@@ -53,12 +53,13 @@ class TorchRLDSDataset(torch.utils.data.IterableDataset):
 
 if __name__ == "__main__":
     import argparse
+    import os
 
     import einops
 
     parser = argparse.ArgumentParser()
     parser.add_argument(
-        "--data_path", type=str, default="/n/fs/llm-unc/data/resize_224"
+        "--data_path", type=str, default=f"{os.environ['VLA_DATA_DIR']}/resize_224"
     )
     parser.add_argument("--mix", type=str, default="bridge")
     parser.add_argument("--camera_views", nargs="*", default=("primary",))

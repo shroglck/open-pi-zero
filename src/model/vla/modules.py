@@ -795,7 +795,7 @@ class GaussianFourierFeatureTransform(torch.nn.Module):
 if __name__ == "__main__":
     from omegaconf import OmegaConf
 
-    cfg = OmegaConf.load("config/train/pg_oxe.yaml")
+    cfg = OmegaConf.load("config/train/pg_bridge.yaml")
     model = JointModel(cfg.joint.config)
 
     dummy_num_image_tokens = 7

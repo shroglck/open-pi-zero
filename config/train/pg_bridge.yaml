@@ -10,7 +10,7 @@ name: paligemma_${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}
 device: cuda
 n_nodes: 1
 seed: 42
-pretrained_model_path: /n/fs/llm-unc/.cache/paligemma-3b-pt-224
+pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
 load_pretrained_weights: True
 resume_checkpoint_path:
 train_vlm: True
@@ -30,7 +30,7 @@ data:
   train:
     dataset_mix: bridge
     split: train[:95%]
-    data_path: /n/fs/llm-unc/data/resize_224
+    data_path: ${oc.env:VLA_DATA_DIR}/resize_224
     window_size: ${cond_steps}
     action_horizon: ${horizon_steps}
     skip_unlabeled: True

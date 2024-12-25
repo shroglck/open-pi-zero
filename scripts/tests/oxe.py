@@ -5,6 +5,8 @@ Reference: https://colab.research.google.com/github/google-deepmind/open_x_embod
 
 """
 
+import os
+
 import tensorflow_datasets as tfds
 from PIL import Image
 
@@ -72,7 +74,7 @@ def dataset2path(dataset_name):
         version = "0.0.1"
     else:
         version = "0.1.0"
-    return f"/n/fs/llm-unc/data/{dataset_name}/{version}"
+    return f"{os.environ['VLA_DATA_DIR']}/{dataset_name}/{version}"
 
 
 def as_gif(images, path="temp.gif"):
@@ -85,7 +87,7 @@ def as_gif(images, path="temp.gif"):
 def visualize_image(
     dataset="bridge_dataset",
     display_key="image_0",
-    data_dir="/n/fs/llm-unc/data/resize_224",
+    data_dir=f'{os.environ['VLA_DATA_DIR']}/resize_224',
 ):
     ds, ds_info = tfds.load(
         name=dataset,
@@ -134,11 +136,14 @@ def visualize_image(
 
 if __name__ == "__main__":
     import argparse
+    import os
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset", type=str, default="bridge_dataset")
     parser.add_argument("--display_key", type=str, default="image_0")
-    parser.add_argument("--data_dir", type=str, default="/n/fs/llm-unc/data/resize_224")
+    parser.add_argument(
+        "--data_dir", type=str, default=f"{os.environ['VLA_DATA_DIR']}/resize_224"
+    )
     args = parser.parse_args()
 
     visualize_image(**vars(args))
