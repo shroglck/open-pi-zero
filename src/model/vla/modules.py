@@ -492,7 +492,7 @@ class JointAttention(nn.Module):
         q_lens = [hidden_states.size(1) for hidden_states in hidden_states_all]
         num_blocks = len(hidden_states_all)
 
-        # always re-compute queires
+        # always re-compute queries
         query_states_all = []
         for block_idx in range(num_blocks):
             hidden_states = hidden_states_all[block_idx]
@@ -512,6 +512,9 @@ class JointAttention(nn.Module):
         if flag_cached:
             key_states_cached, value_states_cached = kv_cache.get(self.layer_idx)
         for block_idx in range(num_blocks):
+            query_states = query_states_all[block_idx]
+            position_ids = position_ids_all[block_idx]
+            cos, sin = self.rotary_emb(position_ids, seq_len=None)
             if flag_cached and block_idx in cache_block_indices:
                 # TODO(allenzren): make this nicer
                 cache_block_idx = cache_block_indices.index(block_idx)
@@ -526,7 +529,6 @@ class JointAttention(nn.Module):
                 key_states = key_states.view(
                     bsz, q_len, self.num_key_value_heads, self.head_dim
                 ).transpose(1, 2)
-                key_states_all.append(key_states)
 
                 # [Batch_Size, Seq_Len, Num_Heads_KV * Head_Dim]
                 value_states = self.v_projs[block_idx](hidden_states)
@@ -534,21 +536,19 @@ class JointAttention(nn.Module):
                 value_states = value_states.view(
                     bsz, q_len, self.num_key_value_heads, self.head_dim
                 ).transpose(1, 2)
+
+                # apply rotary embeddings
+                # [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
+                key_states = apply_rotary_pos_emb(key_states, cos, sin)
+
+                # assign
+                key_states_all.append(key_states)
                 value_states_all.append(value_states)
 
-        # apply rotary embeddings
-        for block_idx in range(num_blocks):
-            query_states = query_states_all[block_idx]
-            key_states = key_states_all[block_idx]
-            position_ids = position_ids_all[block_idx]
-            # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
-            cos, sin = self.rotary_emb(position_ids, seq_len=None)
-            # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
-            query_states, key_states = apply_rotary_pos_emb(
-                query_states, key_states, cos, sin
-            )
+            # Always apply rotary embeddings for keys
+            # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim]
+            query_states = apply_rotary_pos_emb(query_states, cos, sin)
             query_states_all[block_idx] = query_states
-            key_states_all[block_idx] = key_states
 
         # only update when the cache is empty
         flag_to_cache = kv_cache is not None and not kv_cache.has_item(self.layer_idx)
@@ -655,9 +655,8 @@ class JointAttention(nn.Module):
         # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
         cos, sin = self.rotary_emb(position_ids, seq_len=None)
         # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
-        query_states, key_states = apply_rotary_pos_emb(
-            query_states, key_states, cos, sin
-        )
+        query_states = apply_rotary_pos_emb(query_states, cos, sin)
+        key_states = apply_rotary_pos_emb(key_states, cos, sin)
 
         if kv_cache is not None:
             key_states, value_states = kv_cache.update(
@@ -677,7 +676,7 @@ class JointAttention(nn.Module):
         # )
         # attn_output = causal_attention(query_states, key_states, value_states)
 
-        # Perform the calculation as usual, Q * K^T / sqrt(head_dim). Shape: [Batch_Size, Num_Heads_Q, Full_Seq_Len, Full_Seq_Len]
+        # Perform the calculation as usual, Q * K^T / sqrt(head_dim). Shape: [Batch_Size, Num_Heads_Q, Seq_Len_Q, Full_Seq_Len]
         attn_weights = torch.matmul(
             query_states, key_states.transpose(2, 3)
         ) / math.sqrt(self.head_dim)

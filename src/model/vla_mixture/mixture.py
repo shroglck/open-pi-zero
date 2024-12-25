@@ -208,9 +208,8 @@ class MixtureAttention(nn.Module):
         # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
         cos, sin = self.rotary_emb(position_ids, seq_len=None)
         # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim], [Batch_Size, Num_Heads_KV, Seq_Len, Head_Dim]
-        query_states, key_states = apply_rotary_pos_emb(
-            query_states, key_states, cos, sin
-        )
+        query_states = apply_rotary_pos_emb(query_states, cos, sin)
+        key_states = apply_rotary_pos_emb(key_states, cos, sin)
         return query_states, key_states
 
     def repeat_kv(

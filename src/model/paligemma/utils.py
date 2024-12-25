@@ -8,13 +8,12 @@ def rotate_half(x):
     return torch.cat((-x2, x1), dim=-1)
 
 
-def apply_rotary_pos_emb(q, k, cos, sin, unsqueeze_dim=1):
+def apply_rotary_pos_emb(x, cos, sin, unsqueeze_dim=1):
     cos = cos.unsqueeze(unsqueeze_dim)  # Add the head dimension
     sin = sin.unsqueeze(unsqueeze_dim)  # Add the head dimension
     # Apply the formula (34) of the Rotary Positional Encoding paper.
-    q_embed = (q * cos) + (rotate_half(q) * sin)
-    k_embed = (k * cos) + (rotate_half(k) * sin)
-    return q_embed, k_embed
+    x = (x * cos) + (rotate_half(x) * sin)
+    return x
 
 
 def repeat_kv(hidden_states: torch.Tensor, n_rep: int) -> torch.Tensor:
