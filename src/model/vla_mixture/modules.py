@@ -171,7 +171,6 @@ def forward_mixture_attn(
             key_states_cached, value_states_cached = kv_caches[name].get(
                 layer_idx
             )  # take the existing cache at the layer, already applied rotary
-            print("layer", layer_idx, "use cache", key_states_cached.shape)
 
         # prep rotary embeddings
         query_states = query_states_all[name]
@@ -195,8 +194,6 @@ def forward_mixture_attn(
             key_states_new = mixtures[name].attn_func(
                 "forward_apply_rotary_emb", layer_idx, key_states_new, cos, sin
             )
-            print("layer", layer_idx, "compute", key_states_new.shape)
-            print("layer", layer_idx, "k rotary updated")
 
             # always cache in append mode, or cache if no cache yet in fixed mode
             if flag_to_cache_mixture:
@@ -205,12 +202,6 @@ def forward_mixture_attn(
                     value_states_new,
                     layer_idx,
                 )
-                print(
-                    "layer",
-                    layer_idx,
-                    "cache updated",
-                    kv_caches[name].key_cache[layer_idx].shape,
-                )
 
         # always apply rotary embeddings to Q
         # [Batch_Size, Num_Heads_Q, Seq_Len, Head_Dim]
@@ -218,7 +209,6 @@ def forward_mixture_attn(
             "forward_apply_rotary_emb", layer_idx, query_states, cos, sin
         )
         query_states_all[name] = query_states
-        print("layer", layer_idx, "q rotary updated")
 
         # assign K and V carefully
         if flag_cached_mixture:

@@ -166,7 +166,6 @@ class VLA(nn.Module, NoSyncBase):
             if "embed_tokens" in k:
                 new_key = k.replace("language_model.model.embed_tokens.", "")
                 embed_tokens_state_dict[new_key] = v
-        breakpoint()
         self.embed_tokens.load_state_dict(embed_tokens_state_dict, strict=True)
         log.info("Loaded pre-trained weights for embed tokens")
 
@@ -176,7 +175,6 @@ class VLA(nn.Module, NoSyncBase):
             if "vision_tower" in k:
                 new_key = k.replace("vision_tower.", "")
                 vision_tower_state_dict[new_key] = v
-        breakpoint()
         self.vision_tower.load_state_dict(vision_tower_state_dict, strict=True)
         log.info("Loaded pre-trained weights for vision tower")
 
@@ -186,13 +184,12 @@ class VLA(nn.Module, NoSyncBase):
             if "multi_modal_projector" in k:
                 new_key = k.replace("multi_modal_projector.", "")
                 multi_modal_projector_state_dict[new_key] = v
-        breakpoint()
         self.multi_modal_projector.load_state_dict(
             multi_modal_projector_state_dict, strict=True
         )
         log.info("Loaded pre-trained weights for projector")
 
-        # load lm --- account for blocks --- do not change any lora weights
+        # load lm --- do not change any lora weights
         joint_model_state_dict = self.joint_model.state_dict()
         lora_keys = []
         for key in (
@@ -204,29 +201,8 @@ class VLA(nn.Module, NoSyncBase):
             del joint_model_state_dict[key]
         for k, v in tensors.items():
             if "language_model.model" in k:
-                new_key = k.replace("language_model.model.", "")
-                # "self_attn.o_proj.weight" -> "self_attn.o_projs.0.weight"
-                if (
-                    "q_proj" in new_key
-                    or "v_proj" in new_key
-                    or "k_proj" in new_key
-                    or "o_proj" in new_key
-                ):
-                    new_key = new_key.replace("proj.", "projs.0.")
-                # "mlp.up_proj.weight" -> "mlp.0.up_proj.weight"
-                elif "mlp" in new_key:
-                    new_key = new_key.replace("mlp.", "mlp.0.")
-                # "input_layernorm.weight" -> "input_layernorms.0.weight"
-                elif "layernorm" in new_key:
-                    new_key = new_key.replace("layernorm.", "layernorms.0.")
-                # "norm.weight" -> "norm.weight"  # no change needed
-                elif "norm" in new_key:
-                    pass
-                # skip "embed_tokens"
-                elif "embed_tokens" in new_key:
-                    continue
+                new_key = k.replace("language_model.model.", "mixtures.vlm.")
                 joint_model_state_dict[new_key] = v
-        breakpoint()
         self.joint_model.load_state_dict(joint_model_state_dict, strict=False)
         log.info("Loaded pre-trained weights for lm part of the joint model")
 
