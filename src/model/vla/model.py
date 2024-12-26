@@ -465,6 +465,7 @@ class VLA(nn.Module, NoSyncBase):
                 inputs_embeds=inputs_embeds,
                 proprio_embeds=proprio_embeds,
                 action_embeds=action_embeds,
+                time_embeds=time_embeds,
                 kv_cache=kv_cache,
                 cache_block_indices=self.cache_block_indices,
             )

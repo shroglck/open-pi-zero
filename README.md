@@ -1,22 +1,30 @@
 # pg-vla
 
+This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence. The code is written in a fairly modular way so it is easy to add/remove mixtures to the MoE architecture.
+
+Pre-trained checkpoints and eval results coming soon...
+
 ## Installation
+Clone the repository to your home directory
+
+For Simpler eval, clone my fork to your home directory first (addded proprio support)
+
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and the dependencies will be configured automatically when running any `uv run ...` command. Or `pip install -e .`
 
 ### Tests
-VLA with real img/text, and output text
+VLA with real img/text, and output text using paligemma weights
 ```console
-uv run src/model/vla/model.py --text_only --load_pretrained_weights
+uv run src/model/vla_mixture/model.py --text_only --load_pretrained_weights
 ```
 
 VLA with dummy img/text, proprio, and action, output flow matching action
 ```console
-uv run src/model/vla/model.py
+uv run src/model/vla_mixture/model.py
 ```
 
 Block attention with dummy embeddings for img/text, proprio, and action
 ```console
-uv run src/model/vla/modules.py
+uv run src/model/vla_mixture/modules.py
 ```
 
 Text generation with original implementaton
@@ -63,10 +71,21 @@ uv run src/data/dataloader.py \
 
 See launch file
 ```console
-uv run torchrun --nnodes=1 --nproc_per_node=$NUM_GPU --rdzv_id=100 --rdzv_backend=c10d --max-restarts=1 --standalone --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT scripts/run.py
+uv run torchrun --nnodes=1 --nproc_per_node=$NUM_GPU --rdzv_id=100 --rdzv_backend=c10d --max-restarts=1 --standalone --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT scripts/run.py \
+    --config-name=pg_bridge_mixture \
+    --config_path=../config/train
 ```
 
 If using quantization, need to modify Line 474 in `.venv/lib64/python3.10/site-packages/bitsandbytes/autograd/_functions.py` to `return output.clone` from `return output` ([related issue](https://github.com/bitsandbytes-foundation/bitsandbytes/issues/736)).
+
+## Eval
+
+Simpler with Bridge tasks
+```console
+uv run scripts/run.py \
+    --config-name=pg_bridge \
+    --config-path=../config/eval
+```
 
 
 ## Resources

@@ -28,6 +28,16 @@ dependencies = [
     "wandb",
 ]
 
+[project.optional-dependencies]
+simpler = [
+    "mani-skill2-real2sim",
+    "simpler-env",
+]
+
+[tool.uv.sources]
+mani-skill2-real2sim = { path = "../SimplerEnv/ManiSkill2_real2sim", editable = true }
+simpler-env = { path = "../SimplerEnv", editable = true }
+
 [project.urls]
 Homepage = "https://pg-vla.github.io/"
 

@@ -6,7 +6,7 @@ hydra:
 _target_: src.agent.train_mixture.TrainAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/train/${name}/${now:%Y-%m-%d}_${now:%H-%M}_${seed}
-name: paligemma_${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}
+name: paligemma_${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}_${flow_schedule}
 device: cuda
 n_nodes: 1
 seed: 42
@@ -15,7 +15,7 @@ load_pretrained_weights: True
 resume_checkpoint_path:
 train_vlm: True
 use_fourier_features: False
-action_expert_adaptive_mode: # adaLN, adaLN-Zero, or None
+action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False
 lora: False
@@ -29,13 +29,13 @@ data:
     shuffle_buffer_size: 10000
   train:
     dataset_mix: bridge
-    split: train[:2%]
+    split: train
     data_path: ${oc.env:VLA_DATA_DIR}/resize_224
     window_size: ${cond_steps}
     action_horizon: ${horizon_steps}
     skip_unlabeled: True
     load_proprio: True
-    shuffle_buffer_size: 100000
+    shuffle_buffer_size: 200000
     num_parallel_calls: 100
     traj_transform_threads: 10
     traj_read_threads: 10
@@ -53,7 +53,7 @@ eval_freq: 2000
 eval_size: 1024
 eval_thresholds: [0.05, 0.1, 0.2, 0.3, 0.5]
 
-global_batch_size: 32
+global_batch_size: 1024
 per_device_batch_size: 16
 action_lr: 5e-5
 vlm_lr: 5e-5

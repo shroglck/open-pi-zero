@@ -11,12 +11,12 @@ from collections import deque
 import einops
 import numpy as np
 import torch
-import wandb
 from omegaconf import OmegaConf
 from PIL import Image
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
+import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.model import VLA
 from src.model.vla.processing import VLAProcessor
@@ -25,6 +25,8 @@ from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_tim
 from src.utils.optim import CosineAnnealingWarmupRestarts, get_num_params_in_billions
 
 log = logging.getLogger(__name__)
+
+os.environ["WANDB__SERVICE_WAIT"] = "300"
 
 
 class TrainAgent:

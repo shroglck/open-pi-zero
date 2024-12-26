@@ -9,6 +9,7 @@ import time
 import tensorflow as tf
 import torch
 import tqdm
+from PIL import Image
 from torch.utils.data import DataLoader
 
 from src.data.dataset import make_interleaved_dataset
@@ -174,6 +175,15 @@ if __name__ == "__main__":
         ]
         actions = _sample["action"]
         proprios = _sample["observation"]["proprio"]
+
+        # save an image
+        img = Image.fromarray(images[0, :3].numpy().transpose(1, 2, 0))
+        img.save("temp/sample_img_first.png")
+        img = Image.fromarray(images[0, -3:].numpy().transpose(1, 2, 0))
+        img.save("temp/sample_img_last.png")
+        print(texts[0])
+        print(actions[0, -1])
+        breakpoint()
 
         # check padding
         if not _sample["observation"]["timestep_pad_mask"].all():
