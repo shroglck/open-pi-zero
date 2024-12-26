@@ -287,15 +287,8 @@ def forward_mixture_attn(
 
 
 class JointModel(nn.Module):
-    def __init__(
-        self,
-        config,
-        use_quantize: bool = False,
-        use_lora: bool = False,
-    ):
+    def __init__(self, config):
         super().__init__()
-        config.use_quantize = use_quantize
-        config.use_lora = use_lora
         self.config = config
         self.num_hidden_layers = config.num_hidden_layers
         self.num_mixture = len(config.mixture)
@@ -307,86 +300,41 @@ class JointModel(nn.Module):
         self.mixtures = nn.ModuleDict()
         for mixture_name, mixture_config in config.mixture.items():
             mixture_config = OmegaConf.merge(config, mixture_config)
-            self.mixtures[mixture_name] = Mixture(
-                mixture_config, use_quantize, use_lora
-            )
+            self.mixtures[mixture_name] = Mixture(mixture_config)
         self.mixture_names = list(config.mixture.keys())
 
-    # def _check_action_parameter_by_name(self, name: str) -> bool:
-    #     if (
-    #         "q_projs.2" in name
-    #         or "k_projs.2" in name
-    #         or "v_projs.2" in name
-    #         or "o_projs.2" in name
-    #         or "mlp.2" in name
-    #         or "layernorms.2" in name
-    #         or "action_norm" in name
-    #         or "_scale" in name  # adaptive layerscale
-    #     ):
-    #         return True
-    #     return False
+    def _check_gemma_unused_parameter_by_name(self, name: str) -> bool:
+        last_hidden_layer_index = self.num_hidden_layers - 1
+        if (
+            f"{last_hidden_layer_index}.post" in name
+            or f"{last_hidden_layer_index}.mlp" in name
+            or f"{last_hidden_layer_index}.self_attn.o_proj" in name
+            or f"{last_hidden_layer_index}.self_attn.v_proj" in name
+        ):  # norm is not initialized
+            return True
+        return False
 
-    # def _check_gemma_trainable_parameter_by_name(self, name: str) -> bool:
-    #     last_hidden_layer_index = self.num_hidden_layers - 1
-    #     if not (
-    #         "q_projs.2" in name
-    #         or "k_projs.2" in name
-    #         or "v_projs.2" in name
-    #         or "o_projs.2" in name
-    #         or "mlp.2" in name
-    #         or "layernorms.2" in name
-    #         or "action_norm" in name
-    #         or "_scale" in name  # adaptive layerscale
-    #         or name == "norm.weight"  # no need to tune final norm
-    #         or f"{last_hidden_layer_index}.post" in name
-    #         or f"{last_hidden_layer_index}.mlp" in name
-    #         or f"{last_hidden_layer_index}.self_attn.o_projs" in name
-    #         or f"{last_hidden_layer_index}.self_attn.v_projs"
-    #         in name  # no need to tune part of last layer
-    #     ):
-    #         return True
-    #     return False
+    @property
+    def trainable_gemma_parameters(self):
+        gemma_parameters = []
+        for name, param in self.mixtures["vlm"].named_parameters():
+            if not self._check_gemma_unused_parameter_by_name(name):
+                gemma_parameters.append(param)
+        return gemma_parameters
 
-    # def _check_gemma_unused_parameter_by_name(self, name: str) -> bool:
-    #     last_hidden_layer_index = self.num_hidden_layers - 1
-    #     if not self._check_action_parameter_by_name(name) and (
-    #         f"{last_hidden_layer_index}.post" in name
-    #         or f"{last_hidden_layer_index}.mlp" in name
-    #         or f"{last_hidden_layer_index}.self_attn.o_projs" in name
-    #         or f"{last_hidden_layer_index}.self_attn.v_projs" in name
-    #     ):
-    #         return True
-    #     return False
+    @property
+    def trainable_lora_gemma_parameters(self):
+        gemma_parameters = []
+        for name, param in self.named_parameters():
+            if not self._check_gemma_unused_parameter_by_name(name):
+                if "lora_" in name:
+                    gemma_parameters.append(param)
+        return gemma_parameters
 
-    # @property
-    # def action_parameters(self):
-    #     action_parameters = []
-    #     for name, param in self.named_parameters():
-    #         if self._check_action_parameter_by_name(name):
-    #             action_parameters.append(param)
-    #     return action_parameters
-
-    # @property
-    # def trainable_gemma_parameters(self):
-    #     gemma_parameters = []
-    #     for name, param in self.named_parameters():
-    #         if self._check_gemma_trainable_parameter_by_name(name):
-    #             gemma_parameters.append(param)
-    #     return gemma_parameters
-
-    # @property
-    # def trainable_lora_gemma_parameters(self):
-    #     gemma_parameters = []
-    #     for name, param in self.named_parameters():
-    #         if self._check_gemma_trainable_parameter_by_name(name):
-    #             if "lora_" in name:
-    #                 gemma_parameters.append(param)
-    #     return gemma_parameters
-
-    # def freeze_non_lora_weights_in_gemma(self):
-    #     for name, param in self.named_parameters():
-    #         if self._check_gemma_trainable_parameter_by_name(name):
-    #             param.requires_grad = True if "lora_" in name else False
+    def freeze_non_lora_weights_in_gemma(self):
+        for name, param in self.mixtures["vlm"].named_parameters():
+            if not self._check_gemma_unused_parameter_by_name(name):
+                param.requires_grad = True if "lora_" in name else False
 
     def build_mixture_caches(self):
         return {name: KVCache() for name in self.cache_names}
@@ -438,11 +386,11 @@ class JointModel(nn.Module):
             )  # can be None
         return hidden_states_all
 
+
 if __name__ == "__main__":
     from omegaconf import OmegaConf
 
     cfg = OmegaConf.load("config/train/pg_bridge_mixture.yaml")
-    cfg.mixture_names = ["vlm", "proprio", "action"]
     model = JointModel(cfg.joint.config)
 
     # dummy inputs

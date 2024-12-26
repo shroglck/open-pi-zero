@@ -3,7 +3,7 @@ defaults:
 hydra:
   run:
     dir: ${log_dir}
-_target_: src.agent.train.TrainAgent
+_target_: src.agent.train_mixture.TrainAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/train/${name}/${now:%Y-%m-%d}_${now:%H-%M}_${seed}
 name: paligemma_${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}
@@ -14,7 +14,7 @@ pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
 load_pretrained_weights: True
 resume_checkpoint_path:
 train_vlm: True
-use_fourier_features: True
+use_fourier_features: False
 action_expert_adaptive_mode: # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False
@@ -24,9 +24,9 @@ lora_dropout: 0.0
 debug: False
 
 data:
-  # val:  # stil aplying image randomization
-  #   split:  # full val split
-  #   shuffle_buffer_size: 5000
+  val:  # stil aplying image randomization
+    split:  # full val split
+    shuffle_buffer_size: 10000
   train:
     dataset_mix: bridge
     split: train[:2%]
@@ -35,21 +35,21 @@ data:
     action_horizon: ${horizon_steps}
     skip_unlabeled: True
     load_proprio: True
-    shuffle_buffer_size: 10000
+    shuffle_buffer_size: 100000
     num_parallel_calls: 100
     traj_transform_threads: 10
     traj_read_threads: 10
 
-# wandb:
-#   entity: ${oc.env:VLA_WANDB_ENTITY}
-#   project: train-vla
-#   run: ${now:%H-%M-%S}_${name}
+wandb:
+  entity: ${oc.env:VLA_WANDB_ENTITY}
+  project: train-vla
+  run: ${now:%H-%M-%S}_${name}
 
 log_freq: 16
 n_epochs: 20
 n_updates: ${eval:'2195527 // ${global_batch_size} * ${n_epochs}'}
 save_model_freq: ${eval:'2195527 // ${global_batch_size} * 1'}
-eval_freq: 2000000
+eval_freq: 2000
 eval_size: 1024
 eval_thresholds: [0.05, 0.1, 0.2, 0.3, 0.5]
 
@@ -86,24 +86,24 @@ mixture:
     intermediate_size: 16384
     use_final_norm: False
     cache: True
-    quantize: ${quantize}
-    lora: ${lora}
-    adaptive_mode:
+    use_quantize: ${quantize}
+    use_lora: ${lora}
+    adaptive_mode:  # not applicable for gemma
   proprio:
-    hidden_size: 512
-    intermediate_size: 1024
-    use_final_norm: False
+    hidden_size: 1024
+    intermediate_size: 4096
+    use_final_norm: True  # technically no, but sharing weights with action anyway
     cache: True
-    quantize: ${quantize}
-    lora: ${lora}
+    use_quantize: False
+    use_lora: False
     adaptive_mode: ${action_expert_adaptive_mode}
   action:
     hidden_size: 1024
     intermediate_size: 4096
     use_final_norm: True
     cache: False
-    quantize: False
-    lora: False
+    use_quantize: False
+    use_lora: False
     adaptive_mode: ${action_expert_adaptive_mode}
 time_hidden_size: 256 # only applicable if using adaptive
 action_proprio_fourier_dim: 256
@@ -164,5 +164,3 @@ joint:
     attention_bias: False
     attention_dropout: 0.0
     pad_token_id: ${pad_token_id}
-  use_quantize: ${quantize}
-  use_lora: ${lora}

@@ -123,11 +123,11 @@ class VLA(nn.Module, NoSyncBase):
             list(self.action_encoder.parameters())
             + list(self.action_decoder.parameters())
             + list(self.proprio_encoder.parameters())
-            + self.joint_model.action_parameters
-        )
+            + list(self.joint_model.mixtures["action"].parameters())
+        )  # action and proprio share weights
 
     @property
-    def pretrained_parameters(self):
+    def trainable_vlm_parameters(self):
         return (
             list(self.vision_tower.parameters())
             + list(self.multi_modal_projector.parameters())
@@ -135,7 +135,7 @@ class VLA(nn.Module, NoSyncBase):
         )
 
     @property
-    def lora_pretrained_parameters(self):
+    def lora_trainable_vlm_parameters(self):
         params = []
         for name, param in self.vision_tower.named_parameters():
             if "lora_" in name:
@@ -220,9 +220,9 @@ class VLA(nn.Module, NoSyncBase):
         log.info("Froze non-lora weights in lm part of the joint model")
 
     def freeze_unused_weights(self):
-        """text embedding and part of last layer"""
+        """text embedding and part of last layer of vlm, including lora"""
         self.embed_tokens.weight.requires_grad = False
-        for name, param in self.joint_model.named_parameters():
+        for name, param in self.joint_model.mixtures["vlm"].named_parameters():
             if self.joint_model._check_gemma_unused_parameter_by_name(name):
                 param.requires_grad = False
 
@@ -230,8 +230,11 @@ class VLA(nn.Module, NoSyncBase):
         for _, param in self.named_parameters():
             param.requires_grad = False
 
-    def tie_weights(self):
+    def tie_text_weights(self):
         self.lm_head.weight = self.embed_tokens.weight
+
+    def tie_action_proprio_weights(self):
+        self.joint_model.mixtures["proprio"] = self.joint_model.mixtures["action"]
 
     def build_text_cache(self):
         return KVCache()
@@ -622,10 +625,11 @@ if __name__ == "__main__":
         config.mixture.vlm.use_final_norm = True
     device = "cpu" if args.cpu else "cuda"
     model = VLA(config).to(device)
+    model.tied_action_proprio_weights()
     if args.load_pretrained_weights:
         model.load_pretrained_weights()
         if args.text_only:
-            model.tie_weights()
+            model.tie_text_weights()
 
     # dummy image --- replace the first image with a real one
     bsz = 1 if args.text_only else 2

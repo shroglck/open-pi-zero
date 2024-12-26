@@ -18,8 +18,8 @@ from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
 from src.agent.dataset import TorchRLDSInterleavedDataset
-from src.model.vla.model import VLA
 from src.model.vla.processing import VLAProcessor
+from src.model.vla_mixture.model import VLA
 from src.utils.metric import get_action_accuracy
 from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_time
 from src.utils.optim import CosineAnnealingWarmupRestarts, get_num_params_in_billions
@@ -69,9 +69,12 @@ class TrainAgent:
             )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
         self.model = VLA(cfg, use_ddp=self.multi_gpu)
         if cfg.resume_checkpoint_path:
-            self.load_checkpoint(cfg.resume_checkpoint_path)
+            self.load_checkpoint(
+                cfg.resume_checkpoint_path
+            )  # TODO: check with tied weights
         elif cfg.load_pretrained_weights:
             self.model.load_pretrained_weights()
+        self.model.tie_action_proprio_weights()
         self.model.freeze_unused_weights()
         if cfg.lora:
             self.model.freeze_non_lora_weights_in_vlm()
@@ -141,8 +144,8 @@ class TrainAgent:
         log.info(f"Per device batch size: {cfg.per_device_batch_size}")
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
 
-        # optimizer - action only: 0.315B (0.333B with adaLN and time_dim=256),
-        # rest: 2.359B (0.109B with lora rank 64, 0.055B with rank 32)
+        # optimizer - action only: 0.316B (? with adaLN and time_dim=256),
+        # rest: 2.291B (0.109B with lora rank 64, 0.055B with rank 32)
         self.train_vlm = cfg.train_vlm
         self.trained_parameters = model.action_expert_parameters
         if cfg.offload_optimizer:
@@ -178,9 +181,9 @@ class TrainAgent:
         )
         if self.train_vlm:
             if cfg.lora:
-                vlm_trained_parameters = model.lora_pretrained_parameters
+                vlm_trained_parameters = model.lora_trainable_vlm_parameters
             else:
-                vlm_trained_parameters = model.pretrained_parameters
+                vlm_trained_parameters = model.trainable_vlm_parameters
             self.trained_parameters += vlm_trained_parameters
             if cfg.offload_optimizer:
                 self.vlm_optimizer = CPUOffloadOptimizer(

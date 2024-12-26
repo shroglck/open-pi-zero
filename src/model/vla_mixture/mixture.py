@@ -14,7 +14,7 @@ from src.model.vla.modules import AdaptiveLayerscale, AdaptiveRMSNorm
 
 
 class Mixture(nn.Module):
-    def __init__(self, config, quantize: bool = False, lora: bool = False):
+    def __init__(self, config):
         super().__init__()
 
         self.layers = nn.ModuleList(
@@ -61,11 +61,13 @@ class Mixture(nn.Module):
 
 
 class MixtureDecoderLayer(nn.Module):
-    def __init__(self, config, quantize: bool = False, lora: bool = False):
+    def __init__(self, config):
         super().__init__()
         self.self_attn = MixtureAttention(config)
 
-        self.mlp = GemmaMLP(config, use_quantize=config.quantize, use_lora=config.lora)
+        self.mlp = GemmaMLP(
+            config, use_quantize=config.use_quantize, use_lora=config.use_lora
+        )
 
         self.adaptive_mode = config.get("adaptive_mode", None)
         if self.adaptive_mode:
