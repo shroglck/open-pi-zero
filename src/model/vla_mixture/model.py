@@ -8,7 +8,7 @@ import torch
 from safetensors import safe_open
 from torch import nn
 
-from src.model.kv_cache import KVCache, MixtureKVCache
+from src.model.kv_cache import KVCache
 from src.model.vla.modules import (
     ActionEncoder,
     GaussianFourierFeatureTransform,
@@ -417,7 +417,7 @@ class VLA(nn.Module, NoSyncBase):
         pixel_values: torch.FloatTensor,
         attention_mask: torch.Tensor,
         proprios: torch.FloatTensor,
-        kv_caches: Optional[dict[MixtureKVCache]] = None,
+        kv_caches: Optional[dict[KVCache]] = None,
     ) -> torch.FloatTensor:
         kv_caches = (
             self.joint_model.build_mixture_caches() if kv_caches is None else kv_caches
@@ -501,7 +501,6 @@ class VLA(nn.Module, NoSyncBase):
         pixel_values: torch.FloatTensor,
         attention_mask: torch.Tensor,
         kv_cache: Optional[KVCache] = None,
-        cache_mode: str = "append",
     ) -> Tuple:
         # Merge the text tokens and the image tokens
         inputs_embeds = self._merge_input_ids_with_pixel_values(input_ids, pixel_values)
@@ -709,7 +708,6 @@ if __name__ == "__main__":
                 pixel_values=pixel_values,
                 attention_mask=attention_mask,
                 kv_cache=kv_cache,
-                cache_mode="append",
             )
             next_token_logits = outputs["logits"][:, -1, :]
             next_token = torch.argmax(next_token_logits, dim=-1, keepdim=True)

@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 from omegaconf import OmegaConf
 
-from src.model.kv_cache import KVCache, MixtureKVCache
+from src.model.kv_cache import KVCache
 from src.model.vla_mixture.mixture import Mixture
 
 
@@ -22,10 +22,11 @@ def forward_mixture_layers(
     layer_idx: int,
     is_final_layer: bool = False,
     final_layer_post_attn_skip_names: Optional[List[str]] = ["action"],
-    kv_caches: Optional[dict[MixtureKVCache | KVCache]] = None,
+    kv_caches: Optional[dict[KVCache]] = None,
     cache_mode: Optional[str] = "fixed",  # or append used in text generation
     time_cond: Optional[torch.FloatTensor] = None,
 ) -> dict[torch.FloatTensor]:
+    """the usual norm + attn + res + norm + mlp + res"""
     names = list(embeds_all.keys())  # e.g., ["vlm", "proprio", "action"]
 
     residuals_pre_attn = embeds_all
@@ -130,12 +131,13 @@ def forward_mixture_attn(
     layer_idx: int,
     is_final_layer: bool,
     final_layer_post_attn_skip_names: Optional[List[str]] = ["action"],
-    kv_caches: Optional[dict[MixtureKVCache | KVCache]] = None,
+    kv_caches: Optional[dict[KVCache]] = None,
     cache_mode: Optional[str] = "fixed",  # or append used in text generation
     attn_softclamp: float = 50.0,
     attention_dropout: float = 0.0,
 ) -> dict[torch.FloatTensor]:
     """Assume all mixtures have the same head dim"""
+    assert cache_mode in ["fixed", "append"], f"Invalid cache mode: {cache_mode}"
     bsz = len(attention_mask)
     q_lens = [hidden_states.size(1) for hidden_states in hidden_states_all.values()]
     names = list(hidden_states_all.keys())  # e.g., ["vlm", "proprio", "action"]
@@ -397,7 +399,7 @@ class JointModel(nn.Module):
     #             param.requires_grad = True if "lora_" in name else False
 
     def build_mixture_caches(self):
-        return {name: MixtureKVCache() for name in self.cache_names}
+        return {name: KVCache() for name in self.cache_names}
 
     def forward(
         self,
@@ -405,7 +407,7 @@ class JointModel(nn.Module):
         position_ids_all: dict[torch.LongTensor],
         embeds_all: dict[torch.FloatTensor],
         time_cond: Optional[torch.FloatTensor] = None,
-        kv_caches: Optional[dict[MixtureKVCache | KVCache]] = None,
+        kv_caches: Optional[dict[KVCache]] = None,
         cache_mode: Optional[str] = "fixed",  # or append used in text generation
         mixture_names: Optional[List[str]] = None,
     ) -> dict[torch.FloatTensor]:
@@ -445,39 +447,6 @@ class JointModel(nn.Module):
                 embeds_all[name], time_cond
             )  # can be None
         return hidden_states_all
-
-    # def forward_text_only(
-    #     self,
-    #     attention_mask: torch.Tensor,
-    #     position_ids: torch.LongTensor,
-    #     inputs_embeds: torch.FloatTensor,
-    #     kv_cache: Optional[KVCache] = None,
-    # ) -> torch.FloatTensor:
-    #     # normalization
-    #     # [Batch_Size, Seq_Len, Hidden_Size]
-    #     hidden_size = inputs_embeds.shape[-1]
-    #     normalizer = torch.tensor(hidden_size**0.5, dtype=inputs_embeds.dtype)
-    #     inputs_embeds *= normalizer
-
-    #     # layers --- only run vlm mixture
-    #     embeds_all = {"vlm": inputs_embeds}
-    #     position_ids_all = {"vlm": position_ids}
-    #     for layer_idx in range(self.num_hidden_layers):
-    #         # [Batch_Size, Seq_Len, Hidden_Size]
-    #         embeds_all = forward_mixture_layers(
-    #             self.mixtures,
-    #             attention_mask,
-    #             position_ids_all,
-    #             embeds_all,
-    #             layer_idx=layer_idx,
-    #             time_cond=None,
-    #             kv_caches={"vlm": kv_cache},
-    #         )
-
-    #     # [Batch_Size, Seq_Len, Hidden_Size]
-    #     hidden_states = self.mixtures["vlm"].forward_norm(embeds_all["vlm"])
-    #     return hidden_states
-
 
 if __name__ == "__main__":
     from omegaconf import OmegaConf
