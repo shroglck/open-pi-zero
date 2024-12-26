@@ -36,6 +36,10 @@ class VLA(nn.Module, NoSyncBase):
         self.proprio_hidden_size = cfg.mixture.proprio.hidden_size
         self.action_hidden_size = cfg.mixture.action.hidden_size
         self.use_lm_head = cfg.get("use_lm_head", False)
+        self.apply_position_id_offset_for_action = cfg.get(
+            "apply_position_id_offset_for_action", False
+        )
+        self.position_id_start_at_one = cfg.get("position_id_start_at_one", False)
 
         # Action parameterization
         self.num_inference_steps = cfg.num_inference_steps
@@ -344,6 +348,11 @@ class VLA(nn.Module, NoSyncBase):
             .expand(bsz, -1)
             .to(device),
         }
+        if self.position_id_start_at_one:
+            position_ids_all = {k: v + 1 for k, v in position_ids_all.items()}
+        # since proprio and action share the same mixture weights, makes sense to use [0 (proprio), 1 (action), 2 (action), ...] instead of [0 (proprio), 1, 2, ...]
+        if self.apply_position_id_offset_for_action:
+            position_ids_all["action"] += self.num_proprio_tokens
         return causal_mask, position_ids_all
 
     def _build_causal_mask_and_position_ids_for_text(
@@ -625,7 +634,7 @@ if __name__ == "__main__":
         config.mixture.vlm.use_final_norm = True
     device = "cpu" if args.cpu else "cuda"
     model = VLA(config).to(device)
-    model.tied_action_proprio_weights()
+    model.tie_action_proprio_weights()
     if args.load_pretrained_weights:
         model.load_pretrained_weights()
         if args.text_only:

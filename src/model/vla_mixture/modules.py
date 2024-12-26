@@ -133,7 +133,7 @@ def forward_mixture_attn(
     final_layer_post_attn_skip_names: Optional[List[str]] = ["action"],
     kv_caches: Optional[dict[KVCache]] = None,
     cache_mode: Optional[str] = "fixed",  # or append used in text generation
-    attn_softclamp: float = 50.0,
+    attn_softclamp: float = 50.0,  # default in gemma
     attention_dropout: float = 0.0,
 ) -> dict[torch.FloatTensor]:
     """Assume all mixtures have the same head dim"""
@@ -296,7 +296,7 @@ class JointModel(nn.Module):
             name for name in config.mixture if config.mixture[name].cache
         ]  # name of the mixtures that use cache during generation; no cache during training
 
-        # Mixture --- named modulelist
+        # Mixtures
         self.mixtures = nn.ModuleDict()
         for mixture_name, mixture_config in config.mixture.items():
             mixture_config = OmegaConf.merge(config, mixture_config)
@@ -310,7 +310,7 @@ class JointModel(nn.Module):
             or f"{last_hidden_layer_index}.mlp" in name
             or f"{last_hidden_layer_index}.self_attn.o_proj" in name
             or f"{last_hidden_layer_index}.self_attn.v_proj" in name
-        ):  # norm is not initialized
+        ):  # final norm is not initialized
             return True
         return False
 
