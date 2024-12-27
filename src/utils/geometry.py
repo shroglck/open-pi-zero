@@ -115,6 +115,64 @@ def mat2euler(mat, axes="sxyz"):
     return ax, ay, az
 
 
+def quat2mat(q):
+    """Calculate rotation matrix corresponding to quaternion
+
+    Parameters
+    ----------
+    q : 4 element array-like
+
+    Returns
+    -------
+    M : (3,3) array
+      Rotation matrix corresponding to input quaternion *q*
+
+    Notes
+    -----
+    Rotation matrix applies to column vectors, and is applied to the
+    left of coordinate vectors.  The algorithm here allows quaternions that
+    have not been normalized.
+
+    References
+    ----------
+    Algorithm from http://en.wikipedia.org/wiki/Rotation_matrix#Quaternion
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> M = quat2mat([1, 0, 0, 0]) # Identity quaternion
+    >>> np.allclose(M, np.eye(3))
+    True
+    >>> M = quat2mat([0, 1, 0, 0]) # 180 degree rotn around axis 0
+    >>> np.allclose(M, np.diag([1, -1, -1]))
+    True
+    """
+    w, x, y, z = q
+    Nq = w * w + x * x + y * y + z * z
+    if Nq < _FLOAT_EPS:
+        return np.eye(3)
+    s = 2.0 / Nq
+    X = x * s
+    Y = y * s
+    Z = z * s
+    wX = w * X
+    wY = w * Y
+    wZ = w * Z
+    xX = x * X
+    xY = x * Y
+    xZ = x * Z
+    yY = y * Y
+    yZ = y * Z
+    zZ = z * Z
+    return np.array(
+        [
+            [1.0 - (yY + zZ), xY - wZ, xZ + wY],
+            [xY + wZ, 1.0 - (xX + zZ), yZ - wX],
+            [xZ - wY, yZ + wX, 1.0 - (xX + yY)],
+        ]
+    )
+
+
 # Checks if a matrix is a valid rotation matrix.
 def isrotation(
     R: np.ndarray,
@@ -374,3 +432,32 @@ def quat2axangle(quat, identity_thresh=None):
     # Make sure w is not slightly above 1 or below -1
     theta = 2 * math.acos(max(min(quat[0], 1), -1))
     return xyz / math.sqrt(len2), theta
+
+
+def quat2euler(quaternion, axes="sxyz"):
+    """Euler angles from `quaternion` for specified axis sequence `axes`
+
+    Parameters
+    ----------
+    q : 4 element sequence
+       w, x, y, z of quaternion
+    axes : str, optional
+        Axis specification; one of 24 axis sequences as string or encoded
+        tuple - e.g. ``sxyz`` (the default).
+
+    Returns
+    -------
+    ai : float
+        First rotation angle (according to `axes`).
+    aj : float
+        Second rotation angle (according to `axes`).
+    ak : float
+        Third rotation angle (according to `axes`).
+
+    Examples
+    --------
+    >>> angles = quat2euler([0.99810947, 0.06146124, 0, 0])
+    >>> np.allclose(angles, [0.123, 0, 0])
+    True
+    """
+    return mat2euler(quat2mat(quaternion), axes)

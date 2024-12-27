@@ -125,7 +125,7 @@ class TrainAgent:
             TorchRLDSInterleavedDataset(cfg.data.train, train=True).dataset,
             batch_size=cfg.per_device_batch_size,
             pin_memory=True,
-        )  # full bridge dataset has 2195527 transitions and 60064 trajectories
+        )
         self.run_eval = cfg.data.get("val")
         if self.run_eval:
             cfg_data_val = OmegaConf.merge(cfg.data.train, cfg.data.val)
@@ -146,7 +146,7 @@ class TrainAgent:
         log.info(f"Per device batch size: {cfg.per_device_batch_size}")
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
 
-        # optimizer - action only: 0.316B (? with adaLN and time_dim=256),
+        # optimizer - action only: 0.316B (0.333B with adaLN and time_dim=256),
         # rest: 2.291B (0.109B with lora rank 64, 0.055B with rank 32)
         self.train_vlm = cfg.train_vlm
         self.trained_parameters = model.action_expert_parameters

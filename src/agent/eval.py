@@ -62,11 +62,17 @@ class EvalAgent:
         Assume no obs history for now
         """
         env = self.env
-        num_episode = 0
+        cnt_episode = 0
         successes = []
 
         # Run episodes --- not dealing with subtasks
-        obs, reset_info = env.reset()
+        env_reset_options = {}
+        env_reset_options["obj_init_options"] = {
+            "episode_id": cnt_episode,  # this determines the obj inits
+            # "control_freq": 5,
+            # "sim_freq": 500,
+        }
+        obs, reset_info = env.reset(options=env_reset_options)
         # obs keys: 'agent', 'extra', 'camera_param', 'image'
         # agent: 'qpos', 'qvel', 'eef_pos', 'controller', 'base_pose'
         instruction = env.get_language_instruction()
@@ -79,7 +85,7 @@ class EvalAgent:
             def video_parent_path(x):
                 return os.path.join(self.video_dir, f"video_{x}")
 
-            video_writer = imageio.get_writer(video_parent_path(num_episode) + ".mp4")
+            video_writer = imageio.get_writer(video_parent_path(cnt_episode) + ".mp4")
         # is_final_subtask = env.is_final_subtask()
         log.info(
             f"Reset info: {reset_info} Instruction: {instruction} Max episode length: {env.spec.max_episode_steps}"
@@ -114,31 +120,34 @@ class EvalAgent:
                     video_writer.close()
                     if success:  # rename video with success
                         os.rename(
-                            video_parent_path(num_episode) + ".mp4",
-                            video_parent_path(num_episode) + "_success.mp4",
+                            video_parent_path(cnt_episode) + ".mp4",
+                            video_parent_path(cnt_episode) + "_success.mp4",
                         )
-                num_episode += 1
+                cnt_episode += 1
 
                 # Quit
-                if num_episode >= self.n_eval_episode:
+                if cnt_episode >= self.n_eval_episode:
                     break
 
                 # reset
-                obs, reset_info = env.reset()
+                env_reset_options["obj_init_options"] = {
+                    "episode_id": cnt_episode,
+                }
+                obs, reset_info = env.reset(options=env_reset_options)
                 instruction = env.get_language_instruction()
                 log.info(
                     f"Reset info: {reset_info} Instruction: {instruction} Max episode length: {env.spec.max_episode_steps}"
                 )
-                recording = self.n_video > num_episode
+                recording = self.n_video > cnt_episode
                 if recording:
                     video_writer = imageio.get_writer(
-                        video_parent_path(num_episode) + ".mp4"
+                        video_parent_path(cnt_episode) + ".mp4"
                     )
 
         # Summary
         success_rate = np.mean(successes)
         log.info("============ Evaluation Summary ============")
-        log.info(f"Number of episodes: {num_episode}")
+        log.info(f"Number of episodes: {cnt_episode}")
         log.info(f"Success rate: {success_rate}")
         log.info("============================================")
 

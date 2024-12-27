@@ -87,7 +87,7 @@ def as_gif(images, path="temp.gif"):
 def visualize_image(
     dataset="bridge_dataset",
     display_key="image_0",
-    data_dir=f'{os.environ['VLA_DATA_DIR']}/resize_224',
+    data_dir=f"{os.environ['VLA_DATA_DIR']}/resize_224",
 ):
     ds, ds_info = tfds.load(
         name=dataset,

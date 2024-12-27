@@ -122,7 +122,7 @@ class TrainAgent:
             TorchRLDSInterleavedDataset(cfg.data.train, train=True).dataset,
             batch_size=cfg.per_device_batch_size,
             pin_memory=True,
-        )  # full bridge dataset has 2195527 transitions and 60064 trajectories
+        )
         self.run_eval = cfg.data.get("val")
         if self.run_eval:
             cfg_data_val = OmegaConf.merge(cfg.data.train, cfg.data.val)
