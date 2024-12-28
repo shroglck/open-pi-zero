@@ -1,8 +1,8 @@
 # pg-vla
 
-This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence. The code is written in a fairly modular way so it is easy to add/remove mixtures to the MoE architecture.
+This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence. The model uses a pre-trained 3B PaliGemma VLM from Google (2.291B fine-tuned) and a new set of action expert parameters (0.315B).
 
-The model uses a pre-trained 3B PaliGemma VLM from Google (2.291B fine-tuned) and a new set of action expert parameters (0.315B). Currently it is trained with per GPU batch size 16 with L40 using bfloat16 and 8-bit optimizer --- single image (256 tokens), max 20 text tokens, 1 proprio token, and 4 action tokens (chunk size 4). Optimizer offloading and (Q)LoRA are also implemented.
+Currently it is trained with per GPU batch size 16 with L40 using bfloat16 and 8-bit optimizer --- single image (256 tokens), max 20 text tokens, 1 proprio token, and 4 action tokens (chunk size 4). Optimizer offloading and (Q)LoRA are also implemented.
 
 Pre-trained checkpoints and eval results coming soon...
 
@@ -86,7 +86,7 @@ I added gripper width (1 for open and 0 for closed) to the environment observati
 
 ## Training
 
-See launch file
+See launch file. 400(?)GB RAM
 ```console
 uv run torchrun --nnodes=1 --nproc_per_node=$NUM_GPU --rdzv_id=100 --rdzv_backend=c10d --max-restarts=1 --standalone --rdzv_endpoint=$MASTER_ADDR:$MASTER_PORT scripts/run.py \
     --config-name=pg_bridge_mixture \  # or pg_fractal_mixture
@@ -106,7 +106,20 @@ uv run scripts/run.py \
 
 Full sweeping script will be added
 
+## Notes
+
+Tried Gaussian Fourier features for proprio/action input but did not help.
+
+adaLN(-Zero) for time conditioning seems to speed up training a bit initially, but does not make a significant difference after a while.
+
+Linear schedule being more precise than Gamma...
+
+Is flow matching / diffusion objective more stable than cross-entropy so larger lr can be used?
 
 ## Acknowledgement
 
-Octo, OpenVLA, [dlimp](https://github.com/kvablack/dlimp), [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main), Pi0 paper, [Open-source PaliGemma](https://github.com/hkproj/pytorch-paligemma/tree/main)
+PaliGemma setup is largely adopted from [Open-source PaliGemma](https://github.com/hkproj/pytorch-paligemma/tree/main).
+
+Dataset loading is adopted from [Octo](https://octo-models.github.io/) and [dlimp](https://github.com/kvablack/dlimp).
+
+[OpenVLA](https://github.com/openvla/openvla), [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main), [Pi0](https://www.physicalintelligence.company/download/pi0.pdf), [Flow matching](https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb)

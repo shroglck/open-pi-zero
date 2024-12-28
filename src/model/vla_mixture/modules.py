@@ -1,5 +1,7 @@
 """
-Agnostic to mixture setup, e.g., names and block masks
+Wrapper around the mixtures (without encoder / decoder)
+
+Agnostic to the mixture setup
 
 """
 
@@ -302,39 +304,6 @@ class JointModel(nn.Module):
             mixture_config = OmegaConf.merge(config, mixture_config)
             self.mixtures[mixture_name] = Mixture(mixture_config)
         self.mixture_names = list(config.mixture.keys())
-
-    def _check_gemma_unused_parameter_by_name(self, name: str) -> bool:
-        last_hidden_layer_index = self.num_hidden_layers - 1
-        if (
-            f"{last_hidden_layer_index}.post" in name
-            or f"{last_hidden_layer_index}.mlp" in name
-            or f"{last_hidden_layer_index}.self_attn.o_proj" in name
-            or f"{last_hidden_layer_index}.self_attn.v_proj" in name
-        ):  # final norm is not initialized
-            return True
-        return False
-
-    @property
-    def trainable_gemma_parameters(self):
-        gemma_parameters = []
-        for name, param in self.mixtures["vlm"].named_parameters():
-            if not self._check_gemma_unused_parameter_by_name(name):
-                gemma_parameters.append(param)
-        return gemma_parameters
-
-    @property
-    def trainable_lora_gemma_parameters(self):
-        gemma_parameters = []
-        for name, param in self.named_parameters():
-            if not self._check_gemma_unused_parameter_by_name(name):
-                if "lora_" in name:
-                    gemma_parameters.append(param)
-        return gemma_parameters
-
-    def freeze_non_lora_weights_in_gemma(self):
-        for name, param in self.mixtures["vlm"].named_parameters():
-            if not self._check_gemma_unused_parameter_by_name(name):
-                param.requires_grad = True if "lora_" in name else False
 
     def build_mixture_caches(self):
         return {name: KVCache() for name in self.cache_names}

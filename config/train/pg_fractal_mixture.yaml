@@ -6,7 +6,7 @@ hydra:
 _target_: src.agent.train_mixture.TrainAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/train/${name}/${now:%Y-%m-%d}_${now:%H-%M}_${seed}
-name: paligemma_${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}_${flow_schedule}
+name: ${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}_${flow_schedule}
 device: cuda
 n_nodes: 1
 seed: 42
@@ -107,8 +107,6 @@ mixture:
     use_lora: False
     adaptive_mode: ${action_expert_adaptive_mode}
 time_hidden_size: 256 # only applicable if using adaptive
-use_fourier_features: False
-action_proprio_fourier_dim: 256
 
 # Fixed
 image_token_index: 257152

@@ -19,7 +19,6 @@ device: cuda
 seed: 42
 resume_checkpoint_path:
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
-use_fourier_features: False
 n_eval_episode: 10
 n_video: 3
 

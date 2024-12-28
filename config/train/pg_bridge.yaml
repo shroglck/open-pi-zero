@@ -6,7 +6,7 @@ hydra:
 _target_: src.agent.train.TrainAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/train/${name}/${now:%Y-%m-%d}_${now:%H-%M}_${seed}
-name: paligemma_${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}_${flow_schedule}
+name: ${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}_${flow_schedule}
 device: cuda
 n_nodes: 1
 seed: 42
@@ -14,7 +14,6 @@ pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
 load_pretrained_weights: True
 resume_checkpoint_path:
 train_vlm: True
-use_fourier_features: False
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False
@@ -84,7 +83,6 @@ image_text_hidden_size: 2048  # gemma
 proprio_hidden_size: 512
 action_hidden_size: 1024
 time_hidden_size: 256 # only applicable if using adaptive
-action_proprio_fourier_dim: 256
 
 # Fixed
 image_token_index: 257152

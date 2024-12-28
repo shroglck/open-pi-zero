@@ -1,3 +1,12 @@
+"""
+Wrapper around the joint model (mixtures). Siglip from PaliGemma, action-time encoder, proprio encoder, action decoder. Flow matching training
+
+Generates causal masking for the mixtures
+
+Potentially customized to add/remove mixtures, e.g., remove proprio or add another vision module
+
+"""
+
 import glob
 import logging
 import os
@@ -11,7 +20,6 @@ from torch import nn
 from src.model.kv_cache import KVCache
 from src.model.vla.modules import (
     ActionEncoder,
-    GaussianFourierFeatureTransform,
     SinusoidalPosEmb,
 )
 from src.model.vla.utils import sample_from_transformed_beta
@@ -68,42 +76,27 @@ class VLA(nn.Module, NoSyncBase):
         self.vision_tower = hydra.utils.instantiate(cfg.vision)
         self.multi_modal_projector = hydra.utils.instantiate(cfg.vision_projector)
 
-        # lm + action expert
+        # Mixtures
         self.joint_model = hydra.utils.instantiate(cfg.joint)
-
-        # Fourier features
-        self.use_fourier_features = cfg.use_fourier_features
-        if cfg.use_fourier_features:
-            self.action_fourier_transform = GaussianFourierFeatureTransform(
-                self.action_dim, cfg.action_proprio_fourier_dim
-            )
-            self.proprio_fourier_transform = GaussianFourierFeatureTransform(
-                self.proprio_dim, cfg.action_proprio_fourier_dim
-            )
-            action_input_dim = cfg.action_proprio_fourier_dim * 2
-            proprio_input_dim = cfg.action_proprio_fourier_dim * 2
-        else:
-            action_input_dim = self.action_dim
-            proprio_input_dim = self.proprio_dim
 
         # Action, proprio, time encoders
         self.action_expert_adaptive_mode = cfg.action_expert_adaptive_mode
-        if cfg.action_expert_adaptive_mode:
+        if cfg.action_expert_adaptive_mode:  # adaLN or adaLN-Zero
             self.action_encoder = ActionEncoder(
-                action_input_dim,
+                self.action_dim,
                 self.action_hidden_size,
                 time_cond=False,
             )
             self.time_embedding = SinusoidalPosEmb(cfg.time_hidden_size)
         else:  # matching pi0
             self.action_encoder = ActionEncoder(
-                action_input_dim,
+                self.action_dim,
                 self.action_hidden_size,
                 time_cond=True,
             )
             self.time_embedding = SinusoidalPosEmb(self.action_hidden_size)
         self.proprio_encoder = nn.Linear(
-            proprio_input_dim,
+            self.proprio_dim,
             self.proprio_hidden_size,
         )
 
@@ -135,7 +128,7 @@ class VLA(nn.Module, NoSyncBase):
         return (
             list(self.vision_tower.parameters())
             + list(self.multi_modal_projector.parameters())
-            + self.joint_model.trainable_gemma_parameters
+            + self.trainable_gemma_parameters
         )
 
     @property
@@ -147,8 +140,25 @@ class VLA(nn.Module, NoSyncBase):
         for name, param in self.multi_modal_projector.named_parameters():
             if "lora_" in name:
                 params.append(param)
-        params.extend(self.joint_model.trainable_lora_gemma_parameters)
+        params.extend(self.trainable_lora_gemma_parameters)
         return params
+
+    @property
+    def trainable_gemma_parameters(self):
+        gemma_parameters = []
+        for name, param in self.joint_model.mixtures["vlm"].named_parameters():
+            if not self._check_gemma_unused_parameter_by_name(name):
+                gemma_parameters.append(param)
+        return gemma_parameters
+
+    @property
+    def trainable_lora_gemma_parameters(self):
+        gemma_parameters = []
+        for name, param in self.joint_model.mixtures["vlm"].named_parameters():
+            if not self._check_gemma_unused_parameter_by_name(name):
+                if "lora_" in name:
+                    gemma_parameters.append(param)
+        return gemma_parameters
 
     @log_execution_time()
     def load_pretrained_weights(self):
@@ -210,6 +220,18 @@ class VLA(nn.Module, NoSyncBase):
         self.joint_model.load_state_dict(joint_model_state_dict, strict=False)
         log.info("Loaded pre-trained weights for lm part of the joint model")
 
+    def _check_gemma_unused_parameter_by_name(self, name: str) -> bool:
+        """no need to train vlm parameters after attention of last layer"""
+        last_hidden_layer_index = self.joint_model.num_hidden_layers - 1
+        if (
+            f"{last_hidden_layer_index}.post" in name
+            or f"{last_hidden_layer_index}.mlp" in name
+            or f"{last_hidden_layer_index}.self_attn.o_proj" in name
+            or f"{last_hidden_layer_index}.self_attn.v_proj" in name
+        ):  # final norm is not initialized
+            return True
+        return False
+
     def freeze_non_lora_weights_in_vlm(self):
         """Keep all bias frozen"""
         for name, param in self.vision_tower.named_parameters():
@@ -220,14 +242,16 @@ class VLA(nn.Module, NoSyncBase):
             param.requires_grad = True if "lora_" in name else False
         log.info("Froze non-lora weights in projector")
 
-        self.joint_model.freeze_non_lora_weights_in_gemma()
+        for name, param in self.joint_model.mixtures["vlm"].named_parameters():
+            if not self._check_gemma_unused_parameter_by_name(name):
+                param.requires_grad = True if "lora_" in name else False
         log.info("Froze non-lora weights in lm part of the joint model")
 
     def freeze_unused_weights(self):
         """text embedding and part of last layer of vlm, including lora"""
         self.embed_tokens.weight.requires_grad = False
         for name, param in self.joint_model.mixtures["vlm"].named_parameters():
-            if self.joint_model._check_gemma_unused_parameter_by_name(name):
+            if self._check_gemma_unused_parameter_by_name(name):
                 param.requires_grad = False
 
     def freeze_all_weights(self):
@@ -242,6 +266,8 @@ class VLA(nn.Module, NoSyncBase):
 
     def build_text_cache(self):
         return KVCache()
+
+    # ---------- Input preparation ----------#
 
     def _merge_input_ids_with_pixel_values(
         self,
@@ -301,7 +327,7 @@ class VLA(nn.Module, NoSyncBase):
         self,
         attention_mask: torch.Tensor,
     ) -> Tuple[torch.FloatTensor, dict[torch.LongTensor]]:
-        """blocks"""
+        """image/text, proprio, action"""
         device = attention_mask.device
         num_image_text_tokens = torch.sum(attention_mask, dim=1)
         bsz, max_num_image_text_tokens = attention_mask.shape
@@ -312,7 +338,17 @@ class VLA(nn.Module, NoSyncBase):
         proprio_end = max_num_image_text_tokens + self.num_proprio_tokens
         action_start = proprio_end
 
-        # block attention
+        """
+        block attention
+
+                 img/text img/text img/text proprio action action
+        img/text    x        x        x
+        img/text    x        x        x
+        img/text    x        x        x
+        proprio     x        x        x        x
+        action      x        x        x        x       x     x
+        action      x        x        x        x       x     x
+        """
         causal_mask = torch.full(
             (bsz, total_len, total_len),
             torch.finfo(torch.float32).min,
@@ -321,10 +357,9 @@ class VLA(nn.Module, NoSyncBase):
         )  # smallest value, avoid using inf for softmax nan issues with padding
         for idx, num in enumerate(num_image_text_tokens):
             causal_mask[idx, :num, :num] = 0  # image/text attend to itself
-            causal_mask[idx, proprio_start:proprio_end, :num] = (
-                0  # proprio attend to image/text
+            causal_mask[idx, proprio_start:, :num] = (
+                0  # proprio/action attend to image/text
             )
-            causal_mask[idx, action_start:, :num] = 0  # action attend to image/text
         causal_mask[:, proprio_start:proprio_end, proprio_start:proprio_end] = (
             0  # proprio attend to itself
         )
@@ -350,7 +385,7 @@ class VLA(nn.Module, NoSyncBase):
         }
         if self.position_id_start_at_one:
             position_ids_all = {k: v + 1 for k, v in position_ids_all.items()}
-        # since proprio and action share the same mixture weights, makes sense to use [0 (proprio), 1 (action), 2 (action), ...] instead of [0 (proprio), 1, 2, ...]
+        # since proprio and action share the same mixture weights, makes sense to use [0 (proprio), 1 (action), 2 (action), ...] instead of [0 (proprio), 0 (action), 1 (action), ...]
         if self.apply_position_id_offset_for_action:
             position_ids_all["action"] += self.num_proprio_tokens
         return causal_mask, position_ids_all
@@ -398,6 +433,8 @@ class VLA(nn.Module, NoSyncBase):
             )
         return causal_mask, position_ids
 
+    # ---------- Inference ----------#
+
     @torch.no_grad()
     def infer_action(
         self,
@@ -420,10 +457,7 @@ class VLA(nn.Module, NoSyncBase):
             position_ids_all,
         ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
 
-        # Encode proprio and apply Fourier features
-        if self.use_fourier_features:
-            # [Batch_Size, Cond_Steps, Fourier_Dim]
-            proprios = self.proprio_fourier_transform(proprios)
+        # Encode proprio
         proprio_embeds = self.proprio_encoder(proprios)
 
         # Sample pure action noise
@@ -437,24 +471,18 @@ class VLA(nn.Module, NoSyncBase):
             device=input_ids.device,
         )
 
-        # forward euler integration
-        # no need to update causal_mask or position_ids_all
+        # forward euler integration --- vlm and proprio kv cached
+        # no need to update inputs_embeds, proprio_embeds, causal_mask, position_ids_all
         delta_t = 1.0 / self.num_inference_steps
         t = torch.zeros(bsz, device=input_ids.device)
         for _ in range(self.num_inference_steps):
             # encode action and time into embedding
             time_cond = self.time_embedding(t)
-            # apply Fourier features
-            if self.use_fourier_features:
-                # [Batch_Size, Horizon_Steps, Fourier_Dim]
-                action_embeds = self.action_fourier_transform(action)
-            else:
-                action_embeds = action
             # [Batch_Size, Horizon_Steps, Embed_Dim]
             if self.action_expert_adaptive_mode:
-                action_embeds = self.action_encoder(action_embeds)
+                action_embeds = self.action_encoder(action)
             else:
-                action_embeds = self.action_encoder(action_embeds, time_cond)
+                action_embeds = self.action_encoder(action, time_cond)
             # forward thru joint model with block attention
             # [Batch_Size, Horizon_Steps, Embed_Dim]
             action_embeds = self.joint_model(
@@ -568,13 +596,6 @@ class VLA(nn.Module, NoSyncBase):
             causal_mask,
             position_ids_all,
         ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
-
-        # Apply Fourier features
-        if self.use_fourier_features:
-            # [Batch_Size, Horizon_Steps, Fourier_Dim]
-            psi_t = self.action_fourier_transform(psi_t)
-            # [Batch_Size, Cond_Steps, Fourier_Dim]
-            proprios = self.proprio_fourier_transform(proprios)
 
         # Encode proprio
         proprio_embeds = self.proprio_encoder(proprios)

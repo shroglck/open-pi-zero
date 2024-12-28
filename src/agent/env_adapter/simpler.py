@@ -120,7 +120,7 @@ class SimplerAdapter(BaseEnvAdapter):
         raw_actions = np.concatenate(
             [
                 raw_actions_except_gripper,
-                actions[:, 1:],  # gripper opening is continuous in [0, 1]
+                actions[:, -1:],
             ],
             axis=1,
         )

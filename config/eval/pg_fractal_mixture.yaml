@@ -65,8 +65,6 @@ mixture:
     adaptive_mode: ${action_expert_adaptive_mode}
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 time_hidden_size: 256 # only applicable if using adaptive
-use_fourier_features: False
-action_proprio_fourier_dim: 256
 quantize: False
 lora: False
 lora_r: 32

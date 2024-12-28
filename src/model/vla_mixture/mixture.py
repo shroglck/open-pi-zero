@@ -1,3 +1,10 @@
+"""
+Individual mixture in PaliGemma format
+
+Additional support for AdaLN(-Zero) and (Q)LoRA
+
+"""
+
 from typing import Optional, Tuple
 
 import torch

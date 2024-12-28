@@ -94,7 +94,7 @@ class TrainAgent:
                 self.model,
                 device_ids=[local_rank],
                 gradient_as_bucket_view=True,
-                static_graph=False,
+                static_graph=False,  # didn't see improvement with True
             )
             model = self.model.module
             dist.barrier()
@@ -126,7 +126,7 @@ class TrainAgent:
             batch_size=cfg.per_device_batch_size,
             pin_memory=True,
         )
-        self.run_eval = cfg.data.get("val")
+        self.run_eval = cfg.data.get("val", False)
         if self.run_eval:
             cfg_data_val = OmegaConf.merge(cfg.data.train, cfg.data.val)
             self.val_dataiterator = iter(
@@ -218,7 +218,7 @@ class TrainAgent:
             self.load_optimizer(cfg.resume_checkpoint_path)
 
         # logging
-        self.use_wandb = cfg.get("wandb", None)
+        self.use_wandb = cfg.get("wandb", False)
         if self.use_wandb and self.main_rank:
             wandb.init(
                 entity=cfg.wandb.entity,
@@ -248,6 +248,7 @@ class TrainAgent:
         self.model.train()
 
         def preprocess_batch(batch):
+            # TODO(allenzren): multi-image / proprio history
             images = batch["observation"]["image_primary"]
             proprios = batch["observation"]["proprio"]
             actions = batch["action"].squeeze(1)  # remove the time dimension
@@ -361,7 +362,7 @@ class TrainAgent:
                 else:
                     loss_train_deque.append(loss_train.item())
 
-                # validation with action accuracy --- discretize actions (gripper treated as binary, otherwise 0.1 interval)
+                # validation with action accuracy
                 if self.run_eval and (cnt_batch + 1) % self.eval_freq == 0:
                     new_eval_from_last_log = True
                     self.model.eval()
