@@ -35,6 +35,7 @@ def bridge_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
         axis=1,
     )
     trajectory = relabel_actions(trajectory)
+    # in octo, proprio for bridge (raw) has 1 for open and 0 for closed
     trajectory["observation"]["proprio"] = trajectory["observation"]["state"]
     return trajectory
 
@@ -58,7 +59,7 @@ def rt1_dataset_transform(trajectory: Dict[str, Any]) -> Dict[str, Any]:
             trajectory["observation"]["gripper_closed"],
         ),
         axis=-1,
-    )
+    )  # in octo, proprio for fractal (raw) has 0 for open and 1 for closed
     trajectory["language_instruction"] = trajectory["observation"][
         "natural_language_instruction"
     ]

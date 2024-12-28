@@ -73,7 +73,7 @@ class TrainAgent:
         if cfg.resume_checkpoint_path:
             self.load_checkpoint(
                 cfg.resume_checkpoint_path
-            )  # TODO: check with tied weights
+            )  # TODO(allenzren): check with tied weights
         elif cfg.load_pretrained_weights:
             self.model.load_pretrained_weights()
         self.model.tie_action_proprio_weights()
@@ -146,7 +146,7 @@ class TrainAgent:
         log.info(f"Per device batch size: {cfg.per_device_batch_size}")
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
 
-        # optimizer - action only: 0.316B (0.333B with adaLN and time_dim=256),
+        # optimizer - action only: 0.315B (0.333B with adaLN and time_dim=256),
         # rest: 2.291B (0.109B with lora rank 64, 0.055B with rank 32)
         self.train_vlm = cfg.train_vlm
         self.trained_parameters = model.action_expert_parameters
@@ -448,6 +448,7 @@ class TrainAgent:
 
     @log_execution_time()
     def save_training(self, cnt_update, cnt_batch):
+        # TODO(allenzren): skip saving redundant proprio weights
         data = {
             "cnt_update": cnt_update,
             "cnt_batch": cnt_batch,

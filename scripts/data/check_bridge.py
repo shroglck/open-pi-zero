@@ -24,7 +24,6 @@ if __name__ == "__main__":
     )
     parser.add_argument("--mix", type=str, default="bridge")
     parser.add_argument("--camera_views", nargs="*", default=("primary",))
-    parser.add_argument("--load_proprio", action="store_true")
     parser.add_argument(
         "--skip_norm", action="store_true", help="Use raw actions and proprio"
     )
@@ -37,7 +36,7 @@ if __name__ == "__main__":
         args.data_path,
         load_depth=False,
         load_language=True,
-        load_proprio=args.load_proprio,
+        load_proprio=True,
         load_camera_views=args.camera_views,
         skip_norm=args.skip_norm,
     )

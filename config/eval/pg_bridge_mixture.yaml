@@ -1,34 +1,20 @@
-# defaults:
-#   - _self_
-#   - override hydra/hydra_logging: disabled
-#   - override hydra/job_logging: disabled
-# hydra:
-#   output_subdir: null
-#   run:
-#     dir: .  # skip hydra logging
 defaults:
   - _self_
 hydra:
   run:
     dir: ${log_dir}
-_target_: src.agent.eval.EvalAgent
+_target_: src.agent.eval_mixture.EvalAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/eval/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}_${env.task}
 name: bridge_tp${horizon_steps}
 device: cuda
 seed: 42
 resume_checkpoint_path:
-action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
-use_fourier_features: False
-n_eval_episode: 10
-n_video: 3
+n_eval_episode:
+n_video:
 
 env:
-  task: widowx_carrot_on_plate
-  # 'widowx_spoon_on_towel',
-  # 'widowx_carrot_on_plate'
-  # 'widowx_stack_cube'
-  # 'widowx_put_eggplant_in_basket'
+  task:
   adapter:
     _target_: src.agent.env_adapter.simpler.BridgeSimplerAdapter
     dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/bridge_dataset/1.0.0/dataset_statistics_02e49fbdf286cd56a8167823626895770c4a139f0b191f36418753d11dd5e48c.json
@@ -47,10 +33,39 @@ horizon_steps: 4
 action_dim: 7 # EEF_POS
 proprio_dim: 7  # POS_EULER
 
-image_text_hidden_size: 2048  # gemma
-proprio_hidden_size: 512
-action_hidden_size: 1024
-time_hidden_size: 256 # if using adaptive
+mixture:
+  vlm:   # gemma
+    hidden_size: 2048
+    intermediate_size: 16384
+    use_final_norm: False
+    cache: True
+    use_quantize: ${quantize}
+    use_lora: ${lora}
+    adaptive_mode:  # not applicable for gemma
+  proprio:
+    hidden_size: 1024
+    intermediate_size: 4096
+    use_final_norm: True  # technically no, but sharing weights with action anyway
+    cache: True
+    use_quantize: False
+    use_lora: False
+    adaptive_mode: ${action_expert_adaptive_mode}
+  action:
+    hidden_size: 1024
+    intermediate_size: 4096
+    use_final_norm: True
+    cache: False
+    use_quantize: False
+    use_lora: False
+    adaptive_mode: ${action_expert_adaptive_mode}
+action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
+time_hidden_size: 256 # only applicable if using adaptive
+use_fourier_features: False
+action_proprio_fourier_dim: 256
+quantize: False
+lora: False
+lora_r: 32
+lora_dropout: 0.0
 
 # Fixed
 image_token_index: 257152
@@ -76,21 +91,17 @@ vision_projector:
   config:
     vision_config:
       hidden_size: 1152
-      projection_dim: ${image_text_hidden_size}
+      projection_dim: 2048
 
 joint:
-  _target_: src.model.vla.modules.JointModel
+  _target_: src.model.vla_mixture.modules.JointModel
   config:
     action_expert_adaptive_mode: ${action_expert_adaptive_mode}
     time_hidden_size: ${time_hidden_size}
-    hidden_sizes:
-      - ${image_text_hidden_size}
-      - ${proprio_hidden_size}
-      - ${action_hidden_size}
-    intermediate_sizes: # mlp hidden size
-      - 16384 # gemma
-      - 1024
-      - 4096
+    mixture: ${mixture}
+    lora:
+      r: ${lora_r}
+      dropout: ${lora_dropout}
     #
     num_hidden_layers: 18
     num_attention_heads: 8
