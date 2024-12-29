@@ -18,11 +18,11 @@ from safetensors import safe_open
 from torch import nn
 
 from src.model.kv_cache import KVCache
-from src.model.vla.modules import (
+from src.model.vla_mixture.aux_modules import (
     ActionEncoder,
     SinusoidalPosEmb,
 )
-from src.model.vla.utils import sample_from_transformed_beta
+from src.model.vla_mixture.utils import sample_from_transformed_beta
 from src.utils.dummy import NoSyncBase
 from src.utils.monitor import log_execution_time
 
@@ -640,7 +640,7 @@ if __name__ == "__main__":
     from PIL import Image
     from transformers import AutoTokenizer
 
-    from src.model.vla.processing import VLAProcessor
+    from src.model.vla_mixture.processing import VLAProcessor
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--text_only", action="store_true")

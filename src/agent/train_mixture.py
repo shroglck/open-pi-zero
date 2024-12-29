@@ -18,8 +18,8 @@ from transformers import AutoTokenizer
 
 import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
-from src.model.vla.processing import VLAProcessor
 from src.model.vla_mixture.model import VLA
+from src.model.vla_mixture.processing import VLAProcessor
 from src.utils.metric import get_action_accuracy
 from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_time
 from src.utils.optim import CosineAnnealingWarmupRestarts, get_num_params_in_billions

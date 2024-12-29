@@ -9,7 +9,7 @@ from simpler_env.utils.env.observation_utils import get_image_from_maniskill2_ob
 from transformers import AutoTokenizer
 
 from src.agent.env_adapter.base import BaseEnvAdapter
-from src.model.vla.processing import VLAProcessor
+from src.model.vla_mixture.processing import VLAProcessor
 from src.utils.geometry import euler2axangle, mat2euler, quat2mat
 
 

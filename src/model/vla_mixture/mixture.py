@@ -16,8 +16,8 @@ from src.model.paligemma.modules import (
     GemmaRMSNorm,
     GemmaRotaryEmbedding,
 )
-from src.model.paligemma.utils import apply_rotary_pos_emb, repeat_kv
-from src.model.vla.modules import AdaptiveLayerscale, AdaptiveRMSNorm
+from src.model.utils import apply_rotary_pos_emb, repeat_kv
+from src.model.vla_mixture.aux_modules import AdaptiveLayerscale, AdaptiveRMSNorm
 
 
 class Mixture(nn.Module):
@@ -44,14 +44,24 @@ class Mixture(nn.Module):
                 )
 
     @property
-    def head_dim(self):
+    def head_dim(self) -> int:
         return self.layers[0].self_attn.head_dim
 
-    def layer_func(self, method_name: str, layer_idx: int, *args) -> torch.FloatTensor:
+    def layer_func(
+        self,
+        method_name: str,
+        layer_idx: int,
+        *args,
+    ) -> torch.FloatTensor:
         args = [arg for arg in args if arg is not None]
         return getattr(self.layers[layer_idx], method_name)(*args)
 
-    def attn_func(self, method_name: str, layer_idx: int, *args) -> torch.FloatTensor:
+    def attn_func(
+        self,
+        method_name: str,
+        layer_idx: int,
+        *args,
+    ) -> torch.FloatTensor:
         args = [arg for arg in args if arg is not None]
         return getattr(self.layers[layer_idx].self_attn, method_name)(*args)
 
@@ -208,10 +218,7 @@ class MixtureAttention(nn.Module):
     def forward_o_proj(self, x: torch.FloatTensor) -> torch.FloatTensor:
         return self.o_proj(x)
 
-    def forward_rotary_emb(
-        self,
-        position_ids: torch.LongTensor,
-    ) -> torch.FloatTensor:
+    def forward_rotary_emb(self, position_ids: torch.LongTensor) -> torch.FloatTensor:
         # [Batch_Size, Seq_Len, Head_Dim], [Batch_Size, Seq_Len, Head_Dim]
         cos, sin = self.rotary_emb(position_ids, seq_len=None)
         return cos, sin

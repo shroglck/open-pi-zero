@@ -8,7 +8,7 @@ from src.model.kv_cache import KVCache
 from src.model.lora import get_layer
 from src.model.paligemma.modules import GemmaMLP, GemmaRMSNorm, GemmaRotaryEmbedding
 from src.model.paligemma.siglip import PaliGemmaMultiModalProjector, SiglipVisionModel
-from src.model.paligemma.utils import apply_rotary_pos_emb, repeat_kv
+from src.model.utils import apply_rotary_pos_emb, repeat_kv
 
 
 class GemmaAttention(nn.Module):
@@ -422,7 +422,7 @@ class PaliGemmaForConditionalGeneration(nn.Module):
         # shape: (Batch_Size, Seq_Len, Hidden_Size)
         inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
 
-        # TODO(allenzren): why not cache this in text generation?
+        # TODO(allenzren): cache this in text generation?
         # 2. Merge text and images
         # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
         selected_image_feature = self.vision_tower(pixel_values.type_as(inputs_embeds))
