@@ -5,12 +5,13 @@ hydra:
     dir: ${log_dir}
 _target_: src.agent.eval_mixture.EvalAgent
 
-log_dir: ${oc.env:VLA_LOG_DIR}/eval/${name}_${seed}/${env.task}_${now:%H-%M-%S}
+log_dir: ${oc.env:VLA_LOG_DIR}/eval_edr/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
 name:
 device: cuda
 seed: 42
 resume_checkpoint_path:
 n_eval_episode: ${eval:'9 * 4 * 3'}  # 9 apple locations, 4 urdfs, 3 robot locations/rgb_overlay_paths
+n_video: ${n_eval_episode}
 # From Simpler: We place the robot at 3 different positions on the floor and the apple at 9 different positions within a grid on the cabinet top, yielding a total of 3 x 9 = 27 trials
 # The 3 locations are fixed w.r.t. rgb_overlay_path! https://github.com/simpler-env/ManiSkill2_real2sim/blob/87dc84508520310e61c972ece399a0f034095e42/mani_skill2_real2sim/envs/custom_scenes/place_in_closed_drawer_in_scene.py#L184
 # sweeps:

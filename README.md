@@ -1,8 +1,6 @@
 # open-pi-zero
 
-This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence. The model uses a pre-trained 3B PaliGemma VLM from Google (2.291B fine-tuned) and a new set of action expert parameters (0.315B).
-
-Currently it is trained with per GPU batch size 16 with L40 using bfloat16 and 8-bit optimizer --- single image (256 tokens), max 20 text tokens, 1 proprio token, and 4 action tokens (chunk size 4). Optimizer offloading and (Q)LoRA are also implemented.
+This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence. The model adopts a MoE-like architecture, and uses a pre-trained 3B PaliGemma VLM (2.291B to be fine-tuned) and a new set of action expert parameters (0.315B).
 
 Pre-trained checkpoints and eval results coming soon...
 
@@ -24,29 +22,12 @@ VLA with real img/text, and output text using paligemma weights
 uv run src/model/vla_mixture/model.py --text_only --load_pretrained_weights
 ```
 
-VLA with dummy img/text, proprio, and action, output flow matching action
+VLA with dummy img/text, proprio, and action, output dummy flow matching action
 ```console
 uv run src/model/vla_mixture/model.py
 ```
 
-Block attention with dummy embeddings for img/text, proprio, and action
-```console
-uv run src/model/vla_mixture/modules.py
-```
-
-Text generation with original paligemma implementation
-```console
-uv run scripts/tests/run_paligemma.py \
-    --prompt "this image shows " \
-    --image_file_path "media/maniskill_pp.png" \
-    --max_tokens_to_generate 100 \
-    --temperature 0.8 \
-    --top_p 0.9
-```
-
 ## Data
-
-Currently using Google robot (EDR) and Widowx data (fractal/RT-1, bridge, haven't tried BC-Z or RoboVQA)
 
 Download fractal data
 ```console
@@ -55,7 +36,7 @@ uv run gsutil -m cp -r gs://gresearch/robotics/fractal20220817_data/0.1.0 ../dat
 
 Download bridge dataset from [here](https://rail.eecs.berkeley.edu/datasets/bridge_release/data/tfds/) instead.
 
-Preprocess (taken from [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main) and [Octo](https://github.com/kpertsch/rlds_dataset_mod/blob/main/prepare_open_x.sh)). First we need to comment out Line 299-306 in `.venv/lib/python3.10/site-packages/tensorflow_datasets/core/dataset_builder.py` to avoid the `AttributeError: 'MultiplexedPath' object has no attribute 'parts'` error (seems an issue with running python3.10; using `tensorflow_datasets==4.9.2` fixes this issue but disabling gcs does not work any more somehow). Then run (with enough RAM)
+Preprocess (taken from [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main) and [Octo](https://github.com/kpertsch/rlds_dataset_mod/blob/main/prepare_open_x.sh)). Then run (with enough RAM) [possible error](doc/error.md#5)
 ```console
 uv run scripts/data/modify_rlds_dataset.py \
     --dataset=fractal20220817_data \
@@ -74,15 +55,7 @@ uv run src/data/dataloader.py \
     --mix=oxe_simple
 ```
 
-### EE proprio
-
-Fractal data has xyzw quaternion in proprio (upon inspection), and I have been using wxyz in Simpler since it follows the transforms3d library. Bridge uses sxyz euler. EE pose saved in bridge data is relative to a top-down pose (instead of base pose). Both datasets use +x for forward, +y for left, and +z for upward.
-
-### Gripper proprio and action
-
-In Octo, bridge data has 1 for gripper state open and -1 for closed after normalization (continuous), and 1 for gripper action open and 0 for closing (without normalization, binarized). Fractal data has -1 for gripper state open and 1 for open closed after normalization (continuous), and also 1 for gripper action open and 0 for closing (without normalization, binarized).
-
-I added gripper width (1 for open and 0 for closed) to the environment observation in Simpler. Then for the action in Simpler, widowx robot (bridge) has 1 for opening gripper and -1 for closing. Google robot has 1 for closing gripper and -1 for opening.
+[Conventions on proprio / gripper actions](doc/convention.md)
 
 ## Training
 
@@ -93,7 +66,9 @@ uv run torchrun --nnodes=1 --nproc_per_node=$NUM_GPU --rdzv_id=100 --rdzv_backen
     --config_path=../config/train
 ```
 
-If using quantization, need to modify Line 474 in `.venv/lib64/python3.10/site-packages/bitsandbytes/autograd/_functions.py` to `return output.clone` from `return output` ([related issue](https://github.com/bitsandbytes-foundation/bitsandbytes/issues/736)).
+The model was trained with per GPU batch size 16 with L40 using bfloat16 and 8-bit optimizer --- single image (256 tokens), max 20 text tokens, 1 proprio token, and 4 action tokens (chunk size 4). Optimizer offloading and (Q)LoRA are also implemented.
+
+[Possible error if running quantization](doc/error.md#9) [Some observations](doc/notes.md)
 
 ## Evaluation
 
@@ -106,15 +81,9 @@ uv run scripts/run.py \
 
 Full sweeping script will be added
 
-## Notes
+## Things to implement/try
 
-Tried Gaussian Fourier features for proprio/action input but did not help.
-
-adaLN(-Zero) for time conditioning seems to speed up training a bit initially, but does not make a significant difference after a while.
-
-Linear schedule being more precise than Gamma...
-
-Is flow matching / diffusion objective more stable than cross-entropy so larger lr can be used?
+Use EMA (Simpler evals seem sensitive right now; EMA should help). Switch to GPU Simpler. Fine-tuning with a new mixture (e.g., second camera view into pre-trained Dino/Siglip) and gradual unmasking. Co-training with (self-)supervision on modalities other than action.
 
 ## Acknowledgement
 

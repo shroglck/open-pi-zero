@@ -5,7 +5,7 @@ hydra:
     dir: ${log_dir}
 _target_: src.agent.eval.EvalAgent
 
-log_dir: ${oc.env:VLA_LOG_DIR}/eval_bridge/${name}_${seed}/${env.task}_${now:%H-%M-%S}
+log_dir: ${oc.env:VLA_LOG_DIR}/eval_bridge/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
 name:
 device: cuda
 seed: 42
