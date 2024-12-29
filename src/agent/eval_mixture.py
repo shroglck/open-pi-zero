@@ -47,6 +47,9 @@ class EvalAgent:
         self.model.eval()
         log.info(f"Using cuda device: {self.device}")
         log_allocated_gpu_memory(log, "loading model")
+        self.act_steps = (
+            cfg.act_steps
+        )  # e.g., run first two steps of predicted four steps
 
         # env --- no parallelization right now. Bridge uses arm_pd_ee_target_delta_pose_align2_gripper_pd_joint_pos; EDR uses ?
         self.env = simpler_env.make(cfg.env.task)
@@ -103,7 +106,7 @@ class EvalAgent:
             env_actions = self.env_adapter.postprocess(actions.cpu().numpy())
 
             # environment step
-            for env_action in env_actions:
+            for env_action in env_actions[: self.act_steps]:
                 obs, reward, success, truncated, info = env.step(env_action)
                 if truncated:
                     break

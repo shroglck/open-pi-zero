@@ -1,11 +1,3 @@
-# defaults:
-#   - _self_
-#   - override hydra/hydra_logging: disabled
-#   - override hydra/job_logging: disabled
-# hydra:
-#   output_subdir: null
-#   run:
-#     dir: .  # skip hydra logging
 defaults:
   - _self_
 hydra:
@@ -13,21 +5,19 @@ hydra:
     dir: ${log_dir}
 _target_: src.agent.eval.EvalAgent
 
-log_dir: ${oc.env:VLA_LOG_DIR}/eval/${name}/${now:%Y-%m-%d}_${now:%H-%M-%S}_${seed}_${env.task}
-name: bridge_tp${horizon_steps}
+log_dir: ${oc.env:VLA_LOG_DIR}/eval_bridge/${name}_${seed}/${env.task}_${now:%H-%M-%S}
+name:
 device: cuda
 seed: 42
 resume_checkpoint_path:
-action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
-n_eval_episode: 10
-n_video: 3
+n_eval_episode: 72     # octo simpler runs 3 seeds with 24 configs each
+n_video:  ${n_eval_episode}
+# sweeps:
+#   urdf_version:
+#     - null
 
 env:
-  task: widowx_carrot_on_plate
-  # 'widowx_spoon_on_towel',
-  # 'widowx_carrot_on_plate'
-  # 'widowx_stack_cube'
-  # 'widowx_put_eggplant_in_basket'
+  task:
   adapter:
     _target_: src.agent.env_adapter.simpler.BridgeSimplerAdapter
     dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/bridge_dataset/1.0.0/dataset_statistics_02e49fbdf286cd56a8167823626895770c4a139f0b191f36418753d11dd5e48c.json
@@ -43,6 +33,7 @@ final_action_clip_value: 1.0  # data normalized in [-1,1]
 
 cond_steps: 1
 horizon_steps: 4
+act_steps: 4
 action_dim: 7 # EEF_POS
 proprio_dim: 7  # POS_EULER
 
@@ -50,6 +41,8 @@ image_text_hidden_size: 2048  # gemma
 proprio_hidden_size: 512
 action_hidden_size: 1024
 time_hidden_size: 256 # if using adaptive
+action_expert_adaptive_mode:
+use_fourier_features: False
 
 # Fixed
 image_token_index: 257152

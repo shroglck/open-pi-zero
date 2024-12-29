@@ -14,6 +14,7 @@ pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
 load_pretrained_weights: True
 resume_checkpoint_path:
 train_vlm: True
+use_fourier_features: False
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 offload_optimizer: False
 quantize: False

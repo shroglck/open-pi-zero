@@ -313,8 +313,6 @@ class TrainAgent:
                             log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                         normalized_loss = loss_train / self.grad_accumulation_steps
                         normalized_loss.backward()
-                        if self.debug:
-                            log_allocated_gpu_memory(log, f"backward batch {cnt_batch}")
                 else:
                     with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
                         loss_train = self.model(**inputs)
@@ -322,8 +320,6 @@ class TrainAgent:
                         log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                     normalized_loss = loss_train / self.grad_accumulation_steps
                     normalized_loss.backward()  # gradients synced
-                    if self.debug:
-                        log_allocated_gpu_memory(log, f"backward batch {cnt_batch}")
 
                     # step
                     torch.nn.utils.clip_grad_norm_(
@@ -342,10 +338,6 @@ class TrainAgent:
                     self.action_optimizer.zero_grad(set_to_none=True)
                     if self.train_vlm:
                         self.vlm_optimizer.zero_grad(set_to_none=True)
-                    if self.debug:
-                        log_allocated_gpu_memory(
-                            log, f"optimizer zero grad batch {cnt_batch}"
-                        )
                     cnt_update += 1
 
                     # save model at the end of update, models just synced

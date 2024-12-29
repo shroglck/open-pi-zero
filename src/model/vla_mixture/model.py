@@ -339,15 +339,16 @@ class VLA(nn.Module, NoSyncBase):
         action_start = proprio_end
 
         """
-        block attention
+        block attention --- padding for unused text tokens
 
-                 img/text img/text img/text proprio action action
+                 img/text img/text img/text (padding) proprio action action
         img/text    x        x        x
         img/text    x        x        x
         img/text    x        x        x
-        proprio     x        x        x        x
-        action      x        x        x        x       x     x
-        action      x        x        x        x       x     x
+        (padding)
+        proprio     x        x        x                 x
+        action      x        x        x                 x       x      x
+        action      x        x        x                 x       x      x
         """
         causal_mask = torch.full(
             (bsz, total_len, total_len),

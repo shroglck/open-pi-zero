@@ -1,4 +1,4 @@
-# pg-vla
+# open-pi-zero
 
 This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence. The model uses a pre-trained 3B PaliGemma VLM from Google (2.291B fine-tuned) and a new set of action expert parameters (0.315B).
 

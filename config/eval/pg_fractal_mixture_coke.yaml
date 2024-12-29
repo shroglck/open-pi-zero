@@ -5,22 +5,26 @@ hydra:
     dir: ${log_dir}
 _target_: src.agent.eval_mixture.EvalAgent
 
-log_dir: ${oc.env:VLA_LOG_DIR}/eval_bridge/${name}_${seed}/${env.task}_${now:%H-%M-%S}
+log_dir: ${oc.env:VLA_LOG_DIR}/eval/${name}_${seed}/${env.task}_${now:%H-%M-%S}
 name:
 device: cuda
 seed: 42
 resume_checkpoint_path:
-n_eval_episode: 72     # octo simpler runs 3 seeds with 24 configs each
-n_video:  ${n_eval_episode}
+n_eval_episode: ${eval:'25 * 4'}  # 25 locations, 4 urdfs
+n_video: ${n_eval_episode}
+# From Simpler: for each orientation, we place the coke can at 25 grid positions within a rectangle on the tabletop
 # sweeps:
 #   urdf_version:
 #     - null
+#     - "recolor_tabletop_visual_matching_1"
+#     - "recolor_tabletop_visual_matching_2"
+#     - "recolor_cabinet_visual_matching_1"
 
 env:
   task:
   adapter:
-    _target_: src.agent.env_adapter.simpler.BridgeSimplerAdapter
-    dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/bridge_dataset/1.0.0/dataset_statistics_02e49fbdf286cd56a8167823626895770c4a139f0b191f36418753d11dd5e48c.json
+    _target_: src.agent.env_adapter.simpler.EDRSimplerAdapter
+    dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/fractal20220817_data/0.1.0/dataset_statistics_3e5d90a9d57324449cc8a721285d3ccbc2e91113ee9c19218caf905af79b6cb4.json
     pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
     tokenizer_padding: max_length
     max_seq_len: 276  # fixed 256 for image + max 20 for text
@@ -33,9 +37,9 @@ final_action_clip_value: 1.0  # data normalized in [-1,1]
 
 cond_steps: 1
 horizon_steps: 4
-act_steps: 2
+act_steps: 4
 action_dim: 7 # EEF_POS
-proprio_dim: 7  # POS_EULER
+proprio_dim: 8  # POS_QUAT
 
 mixture:
   vlm:   # gemma
