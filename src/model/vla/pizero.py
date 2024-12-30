@@ -14,7 +14,6 @@ from typing import Optional, Tuple
 
 import hydra
 import torch
-from safetensors import safe_open
 from torch import nn
 
 from src.model.kv_cache import KVCache
@@ -59,7 +58,7 @@ class PiZero(nn.Module, NoSyncBase):
         assert self.flow_schedule in [
             "linear",
             "gamma",
-        ], f"Invalid schedule: {self.flow_schedule}"
+        ], f"Invalid flow matching timestep sampling schedule: {self.flow_schedule}"
 
         # text input only
         self.embed_tokens = nn.Embedding(
@@ -109,6 +108,7 @@ class PiZero(nn.Module, NoSyncBase):
                 self.vocab_size,
                 bias=False,
             )
+            self.lm_head.weight = self.embed_tokens.weight  # tie weights
 
     @property
     def action_expert_parameters(self):
@@ -159,6 +159,7 @@ class PiZero(nn.Module, NoSyncBase):
     @log_execution_time()
     def load_pretrained_weights(self):
         """vision, projector, lm from paligemma"""
+        from safetensors import safe_open
 
         # load tensors from files
         safetensors_files = glob.glob(
@@ -253,9 +254,6 @@ class PiZero(nn.Module, NoSyncBase):
     def freeze_all_weights(self):
         for _, param in self.named_parameters():
             param.requires_grad = False
-
-    def tie_text_weights(self):
-        self.lm_head.weight = self.embed_tokens.weight
 
     def tie_action_proprio_weights(self):
         """technically more than just tying weights"""
@@ -740,8 +738,6 @@ if __name__ == "__main__":
     model.tie_action_proprio_weights()
     if args.load_pretrained_weights:
         model.load_pretrained_weights()
-        if args.text_only:
-            model.tie_text_weights()
 
     # dummy image --- replace the first image with a real one
     bsz = 1 if args.text_only else 2

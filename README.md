@@ -1,18 +1,20 @@
 # open-pi-zero
 
-This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence.
+This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence (Pi).
 
-The model adopts a MoE-like architecture, and uses a pre-trained 3B PaliGemma VLM (2.291B to be fine-tuned) and a new set of action expert parameters (0.315B). Bi-directional block-wise causal masking is used such that VLM block attends to itself, proprioception (sharing weights with action) attends to itself and VLM, and action attends to all. The model is trained with flow matching loss on the output of action expert.
+The model adopts a MoE-like architecture, and uses a pre-trained 3B PaliGemma VLM (2.291B to be fine-tuned) and a new set of action expert parameters (0.315B). Block-wise causal masking is used such that VLM block attends to itself, proprioception (sharing weights with action) attends to itself and VLM, and action attends to all; each block is fully bidirectional within. The model is trained with flow matching loss on the output of action expert.
+
+If you find a bug or think I may have misunderstood part of the architecture based on the paper, please raise an issue or email me.
 
 ## Installation
-Clone this repository. If running Simpler eval, clone my [fork](https://github.com/allenzren/SimplerEnv) (addded proprio support) to the same directory
+Clone this repository at your directory. If running Simpler eval, clone my [fork](https://github.com/allenzren/SimplerEnv) (addded proprio support) to the same directory
 ```console
 git clone https://github.com/allenzren/SimplerEnv --recurse-submodules  # Simpler and ManiSkill2_real2sim submodule
 ```
 
 Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run `uv sync`. Or `pip install -e .` instead of using uv.
 
-Set environment variables `VLA_DATA_DIR`, `VLA_LOG_DIR', and `VLA_WANDB_ENTITY` by running `source script/set_path.sh`
+Set environment variables `VLA_DATA_DIR`, `VLA_LOG_DIR`, and `VLA_WANDB_ENTITY` by running `source scripts/set_path.sh`
 
 Download PaliGemma weights at `TRANSFORMERS_CACHE`
 ```console
@@ -31,31 +33,45 @@ uv run src/model/vla/pizero.py
 
 ## Try checkpoints
 
-I have only tried training with either fractal or bridge dataset so far (no mixing with other OXE data).
+I have only tried training with either fractal or bridge dataset so far (training with mixed OXE data soon). Links to the models:
+ [Bridge-Linear](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_linear.pt) | [Bridge-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_gamma.pt) | [Fractal-Linear](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_linear.pt) | [Fractal-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_gamma.pt)
 
-...
+Linear and Gamma stands for the schedule for sampling flow matching timesteps during training: Linear samples uniformly between 0 and 1, and Gamma samples with higher density at earlier timesteps. Gamma is proposed by the Pi0 paper.
 
-The model was trained with per GPU batch size 16 with L40 using bfloat16 and 8-bit optimizer --- single image (256 tokens), max 20 text tokens, 1 proprio token, and 4 action tokens (chunk size 4). Optimizer offloading and (Q)LoRA are also implemented.
+Run an trial in Simpler with the checkpoint (see the list of tasks in the script)
+```console
+uv run scripts/try_checkpoint_in_simpler.py \
+    --task google_robot_pick_horizontal_coke_can \
+    --checkpoint_path ...bridge_gamma.pt \
+    --recording
+```
+This roughtly takes 13GB of VRAM (float32).
+
+### Training details
+
+The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per GPU batch size 16 and thus gradient accumulation step 8). Bfloat16 and 8-bit optimizer were used to reduce VRAM usage. Action and propriocetion data were normalized in [-1, 1].
 
 ### Eval results
 
-For both datasets, I have tried two different schedule for sampling flow matching timesteps during training: Linear (uniform between 0 and 1) and Gamma (higher density at earlier timesteps). Gamma is proposed by the Pi0 paper. Below shows the success rates in the visual matching setting in Simpler
+Bridge policies run all four predicted action steps, while fractal policies run the first two steps of the predicted four.
 
-| Dataset-flow matching schedule  | Carrot on plate | Eggplant in basket | Spoon on towel | Stack cube |
-|---------------------------------|-----------------|--------------------|----------------|------------|
-| [Bridge-Linear](...)   | ... | ... | ... | ... |
-| [Bridge-Gamma](...)    | ... | ... | ... | ... |
+Below shows the success rates in visual matching setting in Simpler (results in visual aggregation setting coming soon)
 
-|                                 | Pick up Coke Can | Move Near | Close Drawer | Open Drawer | Open Drawer and Put Apple In |
-|---------------------------------|------------------|-----------|--------------|-------------|------------------------------|
-| [Fractal-Linear](...)   | ... | ... | ... | ... |
-| [Fractal-Gamma](...)    | ... | ... | ... | ... |
+| Policy | Carrot on plate | Eggplant in basket | Spoon on towel | Stack cube |
+|:------:|:---------------:|:------------------:|:--------------:|:----------:|
+| [Bridge-Linear](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_linear.pt)   | 65.3% | 86.1% | 90.3% | 18.1% |
+| [Bridge-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_gamma.pt)    | 55.6% | 86.1% | 91.7% | 54.2% |
 
-Visual aggregation results coming soon.
+| Policy | Pick up Coke | Move Near | Close Drawer | Open Drawer | Open Top Drawer and Put Apple In |
+|:------:|:------------:|:---------:|:------------:|:-----------:|:--------------------------------:|
+| [Fractal-Linear](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_linear.pt) | 91.7% | 73.8% | 79.6% | 48.1% | 64.8% |
+| [Fractal-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_gamma.pt)    | 96.7% | 85.0% | 74.1% | 47.2% | 12.0% |
+
+Disclaimer: please do not associate my results with possible results from Pi.
 
 ### Inference speed
 
-...
+Inference involves one forward pass through PaliGemma (saving KV cache), and then 10 flow matching steps through the action expert. (TODO) The Pi0 paper shows their inference only takes 73ms on 4090 (Table I).
 
 ## Run training
 
@@ -70,21 +86,21 @@ Download bridge data from [RAIL link](https://rail.eecs.berkeley.edu/datasets/br
 
 ### Data pre-processing
 
-Run (with enough RAM) [slurm/modify_rlds.sh](slurm/modify_rlds.sh), which resizes the images to 224x224 for PaliGemma. [Possible error](doc/error.md#5)
+Run (with enough RAM) [slurm/modify_rlds.sh](slurm/modify_rlds.sh), which resizes the images to 224x224 for PaliGemma.
 
-[Conventions on proprio / gripper actions](doc/convention.md)
+[Possible error](doc/error.md#5) | [Conventions on proprio / gripper actions](doc/convention.md)
 
 ### Training scripts
 
-See examples in the [slurm](slurm/) folder. TFDS dataloading takes a growing amount of CPU RAM. With, it peaks at ...
+See examples in the [slurm](slurm/) folder. TFDS dataloading takes a growing amount of CPU RAM and roughly peaks at about 300-400GB.
 
-[Possible error if running quantization](doc/error.md#9)   | [Some observations](doc/notes.md)
+[Discussion on RAM](https://github.com/openvla/openvla/issues/4) | [Possible error if running quantization](doc/error.md#9) | [My observations/lessons from training](doc/notes.md)
 
 ## Run evaluation
 
 ### Simpler
 
-See examples in the [slurm](slurm/) folder. You need to set `env.adapter.dataset_statistics_path` to the dataset statistics json file generated in your training, located in the dataset folder.
+See examples in the [slurm](slurm/) folder. Currently they use the dataset statistics generated by my training; you may update `env.adapter.dataset_statistics_path` in the config to the dataset statistics json file generated in your training, located in the dataset folder.
 
 ## Things to implement / try
 
@@ -92,8 +108,6 @@ Use EMA (Simpler evals seem sensitive right now; EMA should help). Switch to GPU
 
 ## Acknowledgement
 
-PaliGemma setup is largely adopted from [Open-source PaliGemma](https://github.com/hkproj/pytorch-paligemma/tree/main).
+PaliGemma setup is largely adopted from [Open-source PaliGemma](https://github.com/hkproj/pytorch-paligemma/tree/main). Dataset loading is adopted from [Octo](https://octo-models.github.io/) and [dlimp](https://github.com/kvablack/dlimp). Dataset pre-processing is adopted from [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main). Other references: [Pi0](https://www.physicalintelligence.company/download/pi0.pdf), [OpenVLA](https://github.com/openvla/openvla), [Flow matching](https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb), [Implementation by lucidrains](https://github.com/lucidrains/pi-zero-pytorch).
 
-Dataset loading is adopted from [Octo](https://octo-models.github.io/) and [dlimp](https://github.com/kvablack/dlimp).
-
-[Pi0](https://www.physicalintelligence.company/download/pi0.pdf), [rlds_dataset_mod](https://github.com/kpertsch/rlds_dataset_mod/tree/main), [OpenVLA](https://github.com/openvla/openvla), [Flow matching](https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb), [Implementation by lucidrains](https://github.com/lucidrains/pi-zero-pytorch).
+Special thanks to [Asher Hancock](https://aasherh.github.io/) for the discussion on block-wise causal masking.

@@ -5,7 +5,7 @@ hydra:
     dir: ${log_dir}
 _target_: src.agent.eval.EvalAgent
 
-log_dir: ${oc.env:VLA_LOG_DIR}/eval_edr/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
+log_dir: ${oc.env:VLA_LOG_DIR}/eval_fractal/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
 name:
 device: cuda
 seed: 42
@@ -35,7 +35,7 @@ env:
   task:
   adapter:
     _target_: src.agent.env_adapter.simpler.EDRSimplerAdapter
-    dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/fractal20220817_data/0.1.0/dataset_statistics_3e5d90a9d57324449cc8a721285d3ccbc2e91113ee9c19218caf905af79b6cb4.json
+    dataset_statistics_path: config/fractal_statistics.json
     pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
     tokenizer_padding: max_length
     max_seq_len: 276  # fixed 256 for image + max 20 for text
@@ -48,7 +48,7 @@ final_action_clip_value: 1.0  # data normalized in [-1,1]
 
 cond_steps: 1
 horizon_steps: 4
-act_steps: 4
+act_steps: 2
 action_dim: 7 # EEF_POS
 proprio_dim: 8  # POS_QUAT
 
@@ -64,7 +64,7 @@ mixture:
   proprio:
     hidden_size: 1024
     intermediate_size: 4096
-    use_final_norm: True  # technically no, but sharing weights with action anyway
+    use_final_norm: True  # technically no, but sharing mixture with action
     cache: True
     use_quantize: False
     use_lora: False

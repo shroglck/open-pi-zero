@@ -20,7 +20,7 @@ env:
   task:
   adapter:
     _target_: src.agent.env_adapter.simpler.BridgeSimplerAdapter
-    dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/bridge_dataset/1.0.0/dataset_statistics_02e49fbdf286cd56a8167823626895770c4a139f0b191f36418753d11dd5e48c.json
+    dataset_statistics_path: config/bridge_statistics.json
     pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
     tokenizer_padding: max_length
     max_seq_len: 276  # fixed 256 for image + max 20 for text

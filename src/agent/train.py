@@ -71,9 +71,7 @@ class TrainAgent:
             )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
         self.model = PiZero(cfg, use_ddp=self.multi_gpu)
         if cfg.resume_checkpoint_path:
-            self.load_checkpoint(
-                cfg.resume_checkpoint_path
-            )  # TODO(allenzren): check with tied weights
+            self.load_checkpoint(cfg.resume_checkpoint_path)
         elif cfg.load_pretrained_weights:
             self.model.load_pretrained_weights()
         self.model.tie_action_proprio_weights()
@@ -248,7 +246,7 @@ class TrainAgent:
         self.model.train()
 
         def preprocess_batch(batch):
-            # TODO(allenzren): multi-image / proprio history
+            # TODO(allenzren): support multi-image / proprio history
             images = batch["observation"]["image_primary"]
             proprios = batch["observation"]["proprio"]
             actions = batch["action"].squeeze(1)  # remove the time dimension

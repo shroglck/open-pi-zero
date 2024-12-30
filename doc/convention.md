@@ -1,4 +1,4 @@
-## Conventions on dataset
+## Conventions in datasets / Simpler
 
 ### EE proprio
 
