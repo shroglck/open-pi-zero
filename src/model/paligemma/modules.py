@@ -1,7 +1,10 @@
+import os
+
 import torch
 from torch import nn
 
 from src.model.lora import get_layer
+from src.utils.decorator import conditional_decorator
 
 
 class GemmaRMSNorm(nn.Module):
@@ -10,11 +13,15 @@ class GemmaRMSNorm(nn.Module):
         self.eps = eps
         self.weight = nn.Parameter(torch.zeros(dim))
 
-    @torch.compile
+    @conditional_decorator(
+        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
+    )
     def _norm(self, x):
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
-    @torch.compile
+    @conditional_decorator(
+        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
+    )
     def forward(self, x):
         output = self._norm(x)
         # Llama does x.to(float16) * w whilst Gemma is (x * w).to(float16)
@@ -37,7 +44,9 @@ class GemmaRotaryEmbedding(nn.Module):
         )
         self.register_buffer("inv_freq", tensor=inv_freq, persistent=False)
 
-    @torch.compile
+    @conditional_decorator(
+        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
+    )
     @torch.no_grad()
     def forward(self, position_ids, seq_len=None):
         # x: [bs, num_attention_heads, seq_len, head_size]
@@ -75,7 +84,9 @@ class GemmaMLP(nn.Module):
         self.up_proj = layer(self.hidden_size, self.intermediate_size, bias=False)
         self.down_proj = layer(self.intermediate_size, self.hidden_size, bias=False)
 
-    @torch.compile
+    @conditional_decorator(
+        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
+    )
     def forward(self, x):
         # Equivalent to:
         # y = self.gate_proj(x) # [Batch_Size, Seq_Len, Hidden_Size] -> [Batch_Size, Seq_Len, Intermediate_Size]

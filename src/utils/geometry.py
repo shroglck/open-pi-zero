@@ -1,5 +1,5 @@
 """
-Some copied from transforms3d library
+Mostly copied from transforms3d library
 
 """
 

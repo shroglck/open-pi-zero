@@ -4,9 +4,9 @@ import time
 import torch
 
 
-def log_allocated_gpu_memory(log=None, stage="loading model"):
+def log_allocated_gpu_memory(log=None, stage="loading model", device=0):
     if torch.cuda.is_available():
-        allocated_memory = torch.cuda.memory_allocated()
+        allocated_memory = torch.cuda.memory_allocated(device)
         msg = f"Allocated GPU memory after {stage}: {allocated_memory/1024/1024/1024:.2f} GB"
         print(msg) if log is None else log.info(msg)
 

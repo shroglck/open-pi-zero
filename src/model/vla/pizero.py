@@ -22,7 +22,7 @@ from src.model.vla.modules import (
     SinusoidalPosEmb,
 )
 from src.model.vla.sampling import sample_from_transformed_beta
-from src.utils.dummy import NoSyncBase
+from src.utils.decorator import NoSyncBase
 from src.utils.monitor import log_execution_time
 
 log = logging.getLogger(__name__)
@@ -813,6 +813,7 @@ if __name__ == "__main__":
         generated_tokens = torch.cat(generated_tokens, dim=-1)
         # Decode the generated tokens
         decoded = processor.tokenizer.decode(generated_tokens, skip_special_tokens=True)
+        print("Image path:", real_image_path)
         print("Prompt:", dummy_texts[0])
         print("Generated text:", decoded)
     elif args.loss_only:

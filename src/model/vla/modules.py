@@ -1,9 +1,12 @@
 import math
+import os
 from typing import Optional
 
 import torch
 import torch.nn as nn
 from einops import rearrange
+
+from src.utils.decorator import conditional_decorator
 
 
 class SinusoidalPosEmb(nn.Module):
@@ -88,11 +91,15 @@ class AdaptiveRMSNorm(nn.Module):
         )
         self.to_beta = nn.Linear(dim_cond, dim, bias=False)
 
-    @torch.compile
+    @conditional_decorator(
+        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
+    )
     def _norm(self, x: torch.FloatTensor) -> torch.FloatTensor:
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
-    @torch.compile
+    @conditional_decorator(
+        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
+    )
     def forward(
         self, x: torch.FloatTensor, cond: torch.FloatTensor
     ) -> torch.FloatTensor:
@@ -115,7 +122,9 @@ class AdaptiveLayerscale(nn.Module):
 
         self.to_adaln_zero_gamma = adaln_zero_gamma_linear
 
-    @torch.compile
+    @conditional_decorator(
+        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
+    )
     def forward(
         self, x: torch.FloatTensor, cond: torch.FloatTensor
     ) -> torch.FloatTensor:

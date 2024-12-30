@@ -28,6 +28,9 @@ def main(args):
     np.random.seed(seed)
     torch.manual_seed(seed)
 
+    # disable torch compile
+    os.environ["DISABLE_TORCH_COMPILE"] = "1"
+
     # devices
     device = torch.device(f"cuda:{args.gpu_id}")
 
@@ -45,14 +48,14 @@ def main(args):
     if "gamma" in args.checkpoint_path:
         cfg.flow_schedule = "gamma"
 
-    # model --- about 16gb with float32
+    # model
     model = PiZero(cfg, use_ddp=False)
     load_checkpoint(model, args.checkpoint_path)
     model.freeze_all_weights()
     model.to(device)
     model.eval()
     print(f"Using cuda device: {device}")
-    log_allocated_gpu_memory(None, "loading model")
+    log_allocated_gpu_memory(None, "loading model", args.gpu_id)
 
     # simpler env
     env = simpler_env.make(args.task)
@@ -79,7 +82,7 @@ def main(args):
         inputs = env_adapter.preprocess(env, obs, instruction)
         inputs = {k: v.to(device) for k, v in inputs.items()}
         start_inference_time = time.time()
-        with torch.no_grad():
+        with torch.inference_mode():
             actions = model.infer_action(**inputs)[0]
         if cnt_step > 0:
             inference_times.append(time.time() - start_inference_time)
@@ -112,10 +115,10 @@ def main(args):
     print(f"Checkpoint: {args.checkpoint_path}")
     print(f"Action chunk steps (predicted): {cfg.horizon_steps}")
     print(f"Action chunk steps (executed): {cfg.act_steps}")
+    print(f"Avg inference time (excluding first step): {np.mean(inference_times):.3f}s")
     print(
-        f"Average inference time (skipping first step): {np.mean(inference_times):.3f}s"
+        f"Peak VRAM usage: {torch.cuda.max_memory_reserved(args.gpu_id) / 1024 ** 3:.2f} GB"
     )
-    print(f"Peak VRAM usage: {torch.cuda.max_memory_reserved() / 1024 ** 3:.2f} GB")
     print(f"Task: {args.task}")
     print(f"Total environment steps: {cnt_step}")
     print(f"Success: {success}")
@@ -146,20 +149,9 @@ if __name__ == "__main__":
             "google_robot_place_apple_in_closed_top_drawer",
         ],
     )
-    parser.add_argument(
-        "--checkpoint_path",
-        type=str,
-        default="results/fractal_gamma.pt",
-    )
-    parser.add_argument(
-        "--gpu_id",
-        type=int,
-        default=0,
-    )
-    parser.add_argument(
-        "--recording",
-        action="store_true",
-    )
+    parser.add_argument("--checkpoint_path", type=str)
+    parser.add_argument("--gpu_id", type=int, default=0)
+    parser.add_argument("--recording", action="store_true")
     args = parser.parse_args()
 
     # check task

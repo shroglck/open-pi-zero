@@ -144,7 +144,7 @@ def main(
 
     print("Running inference")
     time_start_inference = time.time()
-    with torch.no_grad():
+    with torch.inference_mode():
         test_inference(
             model,
             processor,

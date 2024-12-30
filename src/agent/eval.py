@@ -27,6 +27,9 @@ class EvalAgent:
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
 
+        # disable torch compile
+        os.environ["DISABLE_TORCH_COMPILE"] = "1"
+
         # devices
         self.gpu_id = cfg.gpu_id
         self.device = torch.device(f"cuda:{self.gpu_id}")
@@ -107,7 +110,7 @@ class EvalAgent:
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             # running amp and bf16 will lead to ~1e-3 difference in action inferred when using vs. not using KV Cache, if starting from the same initial noise.
             # no difference when using float32, also slightly faster on L40
-            with torch.no_grad():
+            with torch.inference_mode():
                 if self.use_bf16:
                     with torch.autocast("cuda", dtype=torch.bfloat16):
                         actions = self.model.infer_action(**inputs)[0]

@@ -16,6 +16,7 @@ dependencies = [
     "einops",
     "gsutil>=5.32",
     "hydra-core",
+    "imageio",
     "matplotlib",
     "numpy==1.26.4",
     "omegaconf",
