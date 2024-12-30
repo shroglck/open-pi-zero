@@ -40,8 +40,8 @@ def main(args):
         cfg = OmegaConf.load("config/eval/bridge.yaml")
 
     # determine flow matching schedule
-    if "linear" in args.checkpoint_path:
-        cfg.flow_schedule = "linear"
+    if "uniform" in args.checkpoint_path:
+        cfg.flow_schedule = "uniform"
     if "gamma" in args.checkpoint_path:
         cfg.flow_schedule = "gamma"
 
@@ -149,7 +149,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--checkpoint_path",
         type=str,
-        default="results/fractal_linear.pt",
+        default="results/fractal_gamma.pt",
     )
     parser.add_argument(
         "--gpu_id",

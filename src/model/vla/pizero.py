@@ -56,7 +56,7 @@ class PiZero(nn.Module, NoSyncBase):
         self.flow_gamma_max = 1 - self.flow_sig_min
         self.flow_schedule = cfg.get("flow_schedule", "gamma")
         assert self.flow_schedule in [
-            "linear",
+            "uniform",
             "gamma",
         ], f"Invalid flow matching timestep sampling schedule: {self.flow_schedule}"
 
@@ -648,7 +648,7 @@ class PiZero(nn.Module, NoSyncBase):
         device = input_ids.device
         bsz = len(input_ids)
         x1 = actions
-        if self.flow_schedule == "linear":  # uniform between 0 and 1
+        if self.flow_schedule == "uniform":  # uniform between 0 and 1
             """https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb"""
             eps = 1e-5
             t = (
