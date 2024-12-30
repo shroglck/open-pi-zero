@@ -13,11 +13,11 @@
 # in /tmp to store dataset during conversion
 ulimit -n 20000
 
-# run
+# TODO: MODIFY data_dir and target_dir
 uv run python scripts/data/modify_rlds_dataset.py \
     --dataset=bridge \
     --data_dir=/n/fs/llm-unc/data/ \
-    --target_dir=/n/fs/llm-unc/data/pp \
+    --target_dir=/n/fs/llm-unc/data/resize_224 \
     --mods=resize_and_jpeg_encode \
     --n_workers=40 \
     --max_episodes_in_memory=200

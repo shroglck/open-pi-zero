@@ -43,4 +43,6 @@ NCCL_SOCKET_IFNAME=ens27f0 srun uv run torchrun \
   --rdzv_id $RANDOM \
   --rdzv_backend c10d \
   --rdzv_endpoint $head_node_ip:$MASTER_PORT \
-  scripts/run.py n_nodes=$SLURM_JOB_NUM_NODES
+  scripts/run.py \
+  --config-name=bridge \
+  n_nodes=$SLURM_JOB_NUM_NODES \

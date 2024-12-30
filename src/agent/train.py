@@ -18,8 +18,8 @@ from transformers import AutoTokenizer
 
 import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
-from src.model.vla_mixture.model import VLA
-from src.model.vla_mixture.processing import VLAProcessor
+from src.model.vla.pizero import PiZero
+from src.model.vla.processing import VLAProcessor
 from src.utils.metric import get_action_accuracy
 from src.utils.monitor import Timer, log_allocated_gpu_memory, log_execution_time
 from src.utils.optim import CosineAnnealingWarmupRestarts, get_num_params_in_billions
@@ -69,7 +69,7 @@ class TrainAgent:
             log.warning(
                 "Quantizing VLM but not adding Lora weights, which means the VLM will be fully frozen!"
             )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
-        self.model = VLA(cfg, use_ddp=self.multi_gpu)
+        self.model = PiZero(cfg, use_ddp=self.multi_gpu)
         if cfg.resume_checkpoint_path:
             self.load_checkpoint(
                 cfg.resume_checkpoint_path

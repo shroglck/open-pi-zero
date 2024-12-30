@@ -3,33 +3,24 @@ defaults:
 hydra:
   run:
     dir: ${log_dir}
-_target_: src.agent.eval_mixture.EvalAgent
+_target_: src.agent.eval.EvalAgent
 
-log_dir: ${oc.env:VLA_LOG_DIR}/eval_edr/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
+log_dir: ${oc.env:VLA_LOG_DIR}/eval_bridge/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
 name:
 device: cuda
 seed: 42
-resume_checkpoint_path:
-n_eval_episode: ${eval:'9 * 4 * 3'}  # 9 apple locations, 4 urdfs, 3 robot locations/rgb_overlay_paths
-n_video: ${n_eval_episode}
-# From Simpler: We place the robot at 3 different positions on the floor and the apple at 9 different positions within a grid on the cabinet top, yielding a total of 3 x 9 = 27 trials
-# The 3 locations are fixed w.r.t. rgb_overlay_path! https://github.com/simpler-env/ManiSkill2_real2sim/blob/87dc84508520310e61c972ece399a0f034095e42/mani_skill2_real2sim/envs/custom_scenes/place_in_closed_drawer_in_scene.py#L184
+checkpoint_path:
+n_eval_episode: 72     # octo simpler runs 3 seeds with 24 configs each
+n_video:  ${n_eval_episode}
 # sweeps:
 #   urdf_version:
 #     - null
-#     - "recolor_tabletop_visual_matching_1"
-#     - "recolor_tabletop_visual_matching_2"
-#     - "recolor_cabinet_visual_matching_1"
-#   rgb_overlay_path:
-#     - ./SimplerEnv/ManiSkill2_real2sim/data/real_inpainting/open_drawer_a0.png
-#     - ./SimplerEnv/ManiSkill2_real2sim/data/real_inpainting/open_drawer_b0.png
-#     - ./SimplerEnv/ManiSkill2_real2sim/data/real_inpainting/open_drawer_c0.png
 
 env:
   task:
   adapter:
-    _target_: src.agent.env_adapter.simpler.EDRSimplerAdapter
-    dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/fractal20220817_data/0.1.0/dataset_statistics_3e5d90a9d57324449cc8a721285d3ccbc2e91113ee9c19218caf905af79b6cb4.json
+    _target_: src.agent.env_adapter.simpler.BridgeSimplerAdapter
+    dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/bridge_dataset/1.0.0/dataset_statistics_02e49fbdf286cd56a8167823626895770c4a139f0b191f36418753d11dd5e48c.json
     pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
     tokenizer_padding: max_length
     max_seq_len: 276  # fixed 256 for image + max 20 for text
@@ -44,7 +35,7 @@ cond_steps: 1
 horizon_steps: 4
 act_steps: 4
 action_dim: 7 # EEF_POS
-proprio_dim: 8  # POS_QUAT
+proprio_dim: 7  # POS_EULER
 
 mixture:
   vlm:   # gemma
@@ -58,7 +49,7 @@ mixture:
   proprio:
     hidden_size: 1024
     intermediate_size: 4096
-    use_final_norm: True  # technically no, but sharing weights with action anyway
+    use_final_norm: True  # technically no, but sharing mixture with action
     cache: True
     use_quantize: False
     use_lora: False
@@ -105,7 +96,7 @@ vision_projector:
       projection_dim: 2048
 
 joint:
-  _target_: src.model.vla_mixture.modules.JointModel
+  _target_: src.model.vla.joint_model.JointModel
   config:
     action_expert_adaptive_mode: ${action_expert_adaptive_mode}
     time_hidden_size: ${time_hidden_size}

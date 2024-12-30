@@ -3,13 +3,13 @@ defaults:
 hydra:
   run:
     dir: ${log_dir}
-_target_: src.agent.eval_mixture.EvalAgent
+_target_: src.agent.eval.EvalAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/eval_edr/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
 name:
 device: cuda
 seed: 42
-resume_checkpoint_path:
+checkpoint_path:
 n_eval_episode: ${eval:'3 * 4 * 9'}  # 3 drawers, 4 urdfs, 9 locations/rgb_overlay_paths
 n_video:  ${n_eval_episode}
 # From Simpler: The robot is positioned in front of a cabinet that contains 3 drawers and instructed to open / close a specific drawer, testing its ability to manipulate articulated objects. We place the robot at 9 grid positions within a rectangle on the floor, yielding a total of 9 x 3 x 2 = 54 trials.
@@ -111,7 +111,7 @@ vision_projector:
       projection_dim: 2048
 
 joint:
-  _target_: src.model.vla_mixture.modules.JointModel
+  _target_: src.model.vla.joint_model.JointModel
   config:
     action_expert_adaptive_mode: ${action_expert_adaptive_mode}
     time_hidden_size: ${time_hidden_size}

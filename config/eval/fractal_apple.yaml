@@ -3,22 +3,27 @@ defaults:
 hydra:
   run:
     dir: ${log_dir}
-_target_: src.agent.eval_mixture.EvalAgent
+_target_: src.agent.eval.EvalAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/eval_edr/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
 name:
 device: cuda
 seed: 42
-resume_checkpoint_path:
-n_eval_episode: ${eval:'60 * 4'}  # 60 locations, 4 urdfs
+checkpoint_path:
+n_eval_episode: ${eval:'9 * 4 * 3'}  # 9 apple locations, 4 urdfs, 3 robot locations/rgb_overlay_paths
 n_video: ${n_eval_episode}
-# From Simpler: In each trial, one object serves as the source object, one serves as the target, and the other serves as the distractor (this creates 6 trials for each triplet and each triangle pattern). We randomly choose 5 triplets of objects among a total of 8 objects (blue plastic bottle, pepsi can, orange, 7up can, apple, sponge, coke can, redbull can), and adopt 2 triangle patterns (upright and inverted). This creates a total of 5 x 2 x 6 = 60 trials
+# From Simpler: We place the robot at 3 different positions on the floor and the apple at 9 different positions within a grid on the cabinet top, yielding a total of 3 x 9 = 27 trials
+# The 3 locations are fixed w.r.t. rgb_overlay_path! https://github.com/simpler-env/ManiSkill2_real2sim/blob/87dc84508520310e61c972ece399a0f034095e42/mani_skill2_real2sim/envs/custom_scenes/place_in_closed_drawer_in_scene.py#L184
 # sweeps:
 #   urdf_version:
 #     - null
 #     - "recolor_tabletop_visual_matching_1"
 #     - "recolor_tabletop_visual_matching_2"
 #     - "recolor_cabinet_visual_matching_1"
+#   rgb_overlay_path:
+#     - ./SimplerEnv/ManiSkill2_real2sim/data/real_inpainting/open_drawer_a0.png
+#     - ./SimplerEnv/ManiSkill2_real2sim/data/real_inpainting/open_drawer_b0.png
+#     - ./SimplerEnv/ManiSkill2_real2sim/data/real_inpainting/open_drawer_c0.png
 
 env:
   task:
@@ -100,7 +105,7 @@ vision_projector:
       projection_dim: 2048
 
 joint:
-  _target_: src.model.vla_mixture.modules.JointModel
+  _target_: src.model.vla.joint_model.JointModel
   config:
     action_expert_adaptive_mode: ${action_expert_adaptive_mode}
     time_hidden_size: ${time_hidden_size}

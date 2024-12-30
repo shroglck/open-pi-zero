@@ -13,7 +13,7 @@ import numpy as np
 import simpler_env
 import torch
 
-from src.model.vla_mixture.model_test import VLA
+from src.model.vla.pizero import PiZero
 from src.utils.monitor import log_allocated_gpu_memory, log_execution_time
 
 log = logging.getLogger(__name__)
@@ -43,8 +43,8 @@ class EvalAgent:
         # torch.backends.cudnn.benchmark = True # for vit conv layers
 
         # model --- about 16gb with float32
-        self.model = VLA(cfg, use_ddp=False)
-        self.load_checkpoint(cfg.resume_checkpoint_path)
+        self.model = PiZero(cfg, use_ddp=False)
+        self.load_checkpoint(cfg.checkpoint_path)
         self.model.freeze_all_weights()
         self.use_bf16 = cfg.get("use_bf16", False)
         if self.use_bf16:

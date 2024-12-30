@@ -3,33 +3,70 @@ defaults:
 hydra:
   run:
     dir: ${log_dir}
-_target_: src.agent.eval_mixture.EvalAgent
+_target_: src.agent.train.TrainAgent
 
-log_dir: ${oc.env:VLA_LOG_DIR}/eval_edr/${name}_ta${act_steps}_${seed}/${env.task}_${now:%H-%M-%S}
-name:
+log_dir: ${oc.env:VLA_LOG_DIR}/train/${name}/${now:%Y-%m-%d}_${now:%H-%M}_${seed}
+name: ${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}_${flow_schedule}
 device: cuda
+n_nodes: 1
 seed: 42
+pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
+load_pretrained_weights: True
 resume_checkpoint_path:
-n_eval_episode: ${eval:'25 * 4'}  # 25 locations, 4 urdfs
-n_video: ${n_eval_episode}
-# From Simpler: for each orientation, we place the coke can at 25 grid positions within a rectangle on the tabletop
-# sweeps:
-#   urdf_version:
-#     - null
-#     - "recolor_tabletop_visual_matching_1"
-#     - "recolor_tabletop_visual_matching_2"
-#     - "recolor_cabinet_visual_matching_1"
+train_vlm: True
+action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
+offload_optimizer: False
+quantize: False
+lora: False
+lora_r: 32
+lora_dropout: 0.0
+debug: False
 
-env:
-  task:
-  adapter:
-    _target_: src.agent.env_adapter.simpler.EDRSimplerAdapter
-    dataset_statistics_path: ${oc.env:VLA_DATA_DIR}/resize_224/fractal20220817_data/0.1.0/dataset_statistics_3e5d90a9d57324449cc8a721285d3ccbc2e91113ee9c19218caf905af79b6cb4.json
-    pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
-    tokenizer_padding: max_length
-    max_seq_len: 276  # fixed 256 for image + max 20 for text
-    num_image_tokens: 256
-    image_size: [224, 224]
+data:
+  val:  # stil aplying image randomization
+    split: train[95%:]
+    shuffle_buffer_size: 10000
+  train:
+    dataset_mix: fractal
+    split: train[:95%]
+    data_path: ${oc.env:VLA_DATA_DIR}/resize_224
+    window_size: ${cond_steps}
+    action_horizon: ${horizon_steps}
+    skip_unlabeled: True
+    load_proprio: True
+    shuffle_buffer_size: 200000
+    num_parallel_calls: 100
+    traj_transform_threads: 10
+    traj_read_threads: 10
+
+wandb:
+  entity: ${oc.env:VLA_WANDB_ENTITY}
+  project: open-pi-zero
+  run: ${now:%H-%M-%S}_${name}
+
+log_freq: 16
+n_epochs: 20
+n_updates: ${eval:'3786400 // ${global_batch_size} * ${n_epochs}'}
+save_model_freq: ${eval:'3786400 // ${global_batch_size} * 1'}
+eval_freq: 2000
+eval_size: 1024
+eval_thresholds: [0.05, 0.1, 0.2, 0.3, 0.5]
+
+global_batch_size: 1024
+per_device_batch_size: 16
+action_lr: 5e-5
+vlm_lr: 5e-5
+action_lr_scheduler:
+  first_cycle_steps: 10000000
+  min_lr: 1e-8
+  warmup_steps: 200
+vlm_lr_scheduler:
+  first_cycle_steps: 10000000
+  min_lr: 1e-8
+  warmup_steps: 200
+action_weight_decay: 0
+vlm_weight_decay: 0
+max_grad_norm: 1.0
 
 flow_schedule: gamma
 num_inference_steps: 10
@@ -37,9 +74,10 @@ final_action_clip_value: 1.0  # data normalized in [-1,1]
 
 cond_steps: 1
 horizon_steps: 4
-act_steps: 4
 action_dim: 7 # EEF_POS
-proprio_dim: 8  # POS_QUAT
+proprio_dim: 8  # POS_EULER
+max_seq_len: 276  # fixed 256 for image + max 20 for text
+tokenizer_padding: max_length # instead of truncating to longest
 
 mixture:
   vlm:   # gemma
@@ -66,12 +104,7 @@ mixture:
     use_quantize: False
     use_lora: False
     adaptive_mode: ${action_expert_adaptive_mode}
-action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 time_hidden_size: 256 # only applicable if using adaptive
-quantize: False
-lora: False
-lora_r: 32
-lora_dropout: 0.0
 
 # Fixed
 image_token_index: 257152
@@ -91,6 +124,11 @@ vision:
     layer_norm_eps: 1e-6
     attention_dropout: 0.0
     num_image_tokens: 256
+    lora:
+      r: ${lora_r}
+      dropout: ${lora_dropout}
+  use_quantize: ${quantize}
+  use_lora: ${lora}
 
 vision_projector:
   _target_: src.model.paligemma.siglip.PaliGemmaMultiModalProjector
@@ -98,9 +136,14 @@ vision_projector:
     vision_config:
       hidden_size: 1152
       projection_dim: 2048
+    lora:
+      r: ${lora_r}
+      dropout: ${lora_dropout}
+  use_quantize: ${quantize}
+  use_lora: ${lora}
 
 joint:
-  _target_: src.model.vla_mixture.modules.JointModel
+  _target_: src.model.vla.joint_model.JointModel
   config:
     action_expert_adaptive_mode: ${action_expert_adaptive_mode}
     time_hidden_size: ${time_hidden_size}

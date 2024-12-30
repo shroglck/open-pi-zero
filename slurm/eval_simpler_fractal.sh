@@ -11,13 +11,13 @@
 #SBATCH --mem=40G
 
 TASK_CONFIGS=(
-    "google_robot_pick_horizontal_coke_can:pg_fractal_mixture_coke"
-    "google_robot_pick_vertical_coke_can:pg_fractal_mixture_coke"
-    "google_robot_pick_standing_coke_can:pg_fractal_mixture_coke"
-    "google_robot_move_near_v0:pg_fractal_mixture_move"
-    "google_robot_open_drawer:pg_fractal_mixture_drawer"
-    "google_robot_close_drawer:pg_fractal_mixture_drawer"
-    "google_robot_place_apple_in_closed_top_drawer:pg_fractal_mixture_apple"
+    "google_robot_pick_horizontal_coke_can:fractal_coke"
+    "google_robot_pick_vertical_coke_can:fractal_coke"
+    "google_robot_pick_standing_coke_can:fractal_coke"
+    "google_robot_move_near_v0:fractal_move"
+    "google_robot_open_drawer:fractal_drawer"
+    "google_robot_close_drawer:fractal_drawer"
+    "google_robot_place_apple_in_closed_top_drawer:fractal_apple"
 )
 
 for TASK_CONFIG in "${TASK_CONFIGS[@]}" ; do
@@ -35,5 +35,5 @@ for TASK_CONFIG in "${TASK_CONFIGS[@]}" ; do
         horizon_steps=4 \
         act_steps=2 \
         name=2024-12-26_22-42_42-ckpt_22182 \
-        'resume_checkpoint_path="results/train/paligemma_fractal_train_tp4_gamma/2024-12-26_22-42_42/checkpoint/ckpt_22182.pt"'
+        'checkpoint_path="results/train/paligemma_fractal_train_tp4_gamma/2024-12-26_22-42_42/checkpoint/ckpt_22182.pt"'
 done

@@ -23,7 +23,7 @@ for TASK in ${TASKS[@]}; do
 
     CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
         scripts/run.py \
-        --config-name=pg_bridge_mixture \
+        --config-name=bridge \
         --config-path=../config/eval \
         device=cuda:0 \
         seed=42 \
@@ -33,5 +33,5 @@ for TASK in ${TASKS[@]}; do
         horizon_steps=4 \
         act_steps=2 \
         name=2024-12-26_15-35_42-ckpt_23584 \
-        'resume_checkpoint_path="results/train/paligemma_bridge_train_tp4_gamma/2024-12-26_15-35_42/checkpoint/ckpt_23584.pt"'
+        'checkpoint_path="results/train/paligemma_bridge_train_tp4_gamma/2024-12-26_15-35_42/checkpoint/ckpt_23584.pt"'
 done

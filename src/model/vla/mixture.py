@@ -17,7 +17,7 @@ from src.model.paligemma.modules import (
     GemmaRotaryEmbedding,
 )
 from src.model.utils import apply_rotary_pos_emb, repeat_kv
-from src.model.vla_mixture.aux_modules import AdaptiveLayerscale, AdaptiveRMSNorm
+from src.model.vla.modules import AdaptiveLayerscale, AdaptiveRMSNorm
 
 
 class Mixture(nn.Module):

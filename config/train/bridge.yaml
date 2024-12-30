@@ -3,7 +3,7 @@ defaults:
 hydra:
   run:
     dir: ${log_dir}
-_target_: src.agent.train_mixture.TrainAgent
+_target_: src.agent.train.TrainAgent
 
 log_dir: ${oc.env:VLA_LOG_DIR}/train/${name}/${now:%Y-%m-%d}_${now:%H-%M}_${seed}
 name: ${data.train.dataset_mix}_${data.train.split}_tp${horizon_steps}_${flow_schedule}
@@ -24,11 +24,11 @@ debug: False
 
 data:
   val:  # stil aplying image randomization
-    split: train[95%:]
+    split:  # full val split
     shuffle_buffer_size: 10000
   train:
-    dataset_mix: fractal
-    split: train[:95%]
+    dataset_mix: bridge
+    split: train
     data_path: ${oc.env:VLA_DATA_DIR}/resize_224
     window_size: ${cond_steps}
     action_horizon: ${horizon_steps}
@@ -41,13 +41,13 @@ data:
 
 wandb:
   entity: ${oc.env:VLA_WANDB_ENTITY}
-  project: train-vla
+  project: open-pi-zero
   run: ${now:%H-%M-%S}_${name}
 
 log_freq: 16
 n_epochs: 20
-n_updates: ${eval:'3786400 // ${global_batch_size} * ${n_epochs}'}
-save_model_freq: ${eval:'3786400 // ${global_batch_size} * 1'}
+n_updates: ${eval:'2195527 // ${global_batch_size} * ${n_epochs}'}
+save_model_freq: ${eval:'2195527 // ${global_batch_size} * 1'}
 eval_freq: 2000
 eval_size: 1024
 eval_thresholds: [0.05, 0.1, 0.2, 0.3, 0.5]
@@ -71,13 +71,11 @@ max_grad_norm: 1.0
 flow_schedule: gamma
 num_inference_steps: 10
 final_action_clip_value: 1.0  # data normalized in [-1,1]
-position_id_start_at_one: False
-apply_position_id_offset_for_action: False
 
 cond_steps: 1
 horizon_steps: 4
 action_dim: 7 # EEF_POS
-proprio_dim: 8  # POS_EULER
+proprio_dim: 7  # POS_EULER
 max_seq_len: 276  # fixed 256 for image + max 20 for text
 tokenizer_padding: max_length # instead of truncating to longest
 
@@ -145,7 +143,7 @@ vision_projector:
   use_lora: ${lora}
 
 joint:
-  _target_: src.model.vla_mixture.modules.JointModel
+  _target_: src.model.vla.joint_model.JointModel
   config:
     action_expert_adaptive_mode: ${action_expert_adaptive_mode}
     time_hidden_size: ${time_hidden_size}

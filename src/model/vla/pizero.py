@@ -18,18 +18,18 @@ from safetensors import safe_open
 from torch import nn
 
 from src.model.kv_cache import KVCache
-from src.model.vla_mixture.aux_modules import (
+from src.model.vla.modules import (
     ActionEncoder,
     SinusoidalPosEmb,
 )
-from src.model.vla_mixture.utils import sample_from_transformed_beta
+from src.model.vla.sampling import sample_from_transformed_beta
 from src.utils.dummy import NoSyncBase
 from src.utils.monitor import log_execution_time
 
 log = logging.getLogger(__name__)
 
 
-class VLA(nn.Module, NoSyncBase):
+class PiZero(nn.Module, NoSyncBase):
     @log_execution_time()
     def __init__(self, cfg, use_ddp: bool = False):
         super().__init__()
@@ -44,10 +44,6 @@ class VLA(nn.Module, NoSyncBase):
         self.proprio_hidden_size = cfg.mixture.proprio.hidden_size
         self.action_hidden_size = cfg.mixture.action.hidden_size
         self.use_lm_head = cfg.get("use_lm_head", False)
-        self.apply_position_id_offset_for_action = cfg.get(
-            "apply_position_id_offset_for_action", False
-        )  # TODO(allenzren): deprecate
-        self.position_id_start_at_one = cfg.get("position_id_start_at_one", False)
 
         # Action parameterization
         self.num_inference_steps = cfg.num_inference_steps
@@ -373,23 +369,20 @@ class VLA(nn.Module, NoSyncBase):
         # [Batch_Size, Q_Len, KV_Len] -> [Batch_Size, Num_Heads_Q, Q_Len, KV_Len]
         causal_mask = causal_mask.unsqueeze(1)
 
-        # position ids for each blocks, ignore padding
+        # position ids for each blocks, ignore padding --- start at 1
         position_ids_all = {
-            "vlm": torch.arange(max_num_image_text_tokens)[None]
+            "vlm": torch.arange(1, max_num_image_text_tokens + 1)[None]
             .expand(bsz, -1)
             .to(device),
-            "proprio": torch.arange(self.num_proprio_tokens)[None]
+            "proprio": torch.arange(1, self.num_proprio_tokens + 1)[None]
             .expand(bsz, -1)
             .to(device),
-            "action": torch.arange(self.num_action_tokens)[None]
+            "action": torch.arange(1, self.num_action_tokens + 1)[None]
             .expand(bsz, -1)
             .to(device),
         }
-        if self.position_id_start_at_one:
-            position_ids_all = {k: v + 1 for k, v in position_ids_all.items()}
         # since proprio and action share the same mixture weights, makes sense to use [0 (proprio), 1 (action), 2 (action), ...] instead of [0 (proprio), 0 (action), 1 (action), ...]
-        if self.apply_position_id_offset_for_action:
-            position_ids_all["action"] += self.num_proprio_tokens
+        position_ids_all["action"] += self.num_proprio_tokens
         return causal_mask, position_ids_all
 
     def _build_causal_mask_and_position_ids_for_text(
@@ -728,7 +721,7 @@ if __name__ == "__main__":
     from PIL import Image
     from transformers import AutoTokenizer
 
-    from src.model.vla_mixture.processing import VLAProcessor
+    from src.model.vla.processing import VLAProcessor
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--text_only", action="store_true")
@@ -738,12 +731,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
     assert not (args.text_only and args.loss_only)
 
-    config = OmegaConf.load("config/train/pg_bridge_mixture.yaml")
+    config = OmegaConf.load("config/train/bridge.yaml")
     if args.text_only:
         config.use_lm_head = True
         config.mixture.vlm.use_final_norm = True
     device = "cpu" if args.cpu else "cuda"
-    model = VLA(config).to(device)
+    model = PiZero(config).to(device)
     model.tie_action_proprio_weights()
     if args.load_pretrained_weights:
         model.load_pretrained_weights()

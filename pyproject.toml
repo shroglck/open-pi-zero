@@ -1,7 +1,10 @@
 [project]
-name = "pg-vla"
+name = "open-pi-zero"
 version = "0.1.0"
-description = "Training vision-language-action models"
+description = "Re-implementation of Pi0 vision-language action (VLA) model from Physical Intelligence"
+authors = [
+  {name = "Allen Z. Ren", email = "allenren96@gmail.com"},
+]
 readme = "README.md"
 requires-python = "==3.10.*"
 classifiers = [
@@ -14,7 +17,7 @@ dependencies = [
     "gsutil>=5.32",
     "hydra-core",
     "matplotlib",
-    "numpy",
+    "numpy==1.26.4",
     "omegaconf",
     "pillow",
     "pre-commit>=4.0.1",
@@ -37,9 +40,6 @@ simpler = [
 [tool.uv.sources]
 mani-skill2-real2sim = { path = "../SimplerEnv/ManiSkill2_real2sim", editable = true }
 simpler-env = { path = "../SimplerEnv", editable = true }
-
-[project.urls]
-Homepage = "https://pg-vla.github.io/"
 
 [build-system]
 requires = ["setuptools>=61.0"]

@@ -62,7 +62,7 @@ def _main(cfg: OmegaConf):
 @hydra.main(
     version_base=None,
     config_path=os.path.join(os.getcwd(), "config/train"),
-    config_name="pg_bridge.yaml",
+    config_name="bridge.yaml",
 )  # defaults
 def main(cfg: OmegaConf):
     _main(cfg)
