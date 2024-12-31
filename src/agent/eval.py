@@ -37,10 +37,6 @@ class EvalAgent:
         self.video_dir = os.path.join(self.log_dir, "videos")
         os.makedirs(self.video_dir, exist_ok=True)
 
-        # didn't see a difference in inference speed with L40
-        # torch.set_float32_matmul_precision("medium")  # highest, high
-        # torch.backends.cudnn.benchmark = True # for vit conv layers
-
         # model
         self.dtype = torch.bfloat16 if cfg.get("use_bf16", False) else torch.float32
         self.model = PiZeroInference(cfg, use_ddp=False)

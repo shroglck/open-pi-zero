@@ -44,10 +44,6 @@ def main(args):
     if "gamma" in args.checkpoint_path:
         cfg.flow_schedule = "gamma"
 
-    # didn't see a difference in inference speed with L40
-    # torch.set_float32_matmul_precision("medium")  # highest, high
-    # torch.backends.cudnn.benchmark = True # for vit conv layers
-
     # model
     dtype = torch.bfloat16 if args.use_bf16 else torch.float32
     model = PiZeroInference(cfg, use_ddp=False)
@@ -198,4 +194,4 @@ if __name__ == "__main__":
     if "widowx" in args.task:
         assert "bridge" in args.checkpoint_path
 
-    main(parser.parse_args())
+    main(args)
