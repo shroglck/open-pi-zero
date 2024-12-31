@@ -2,7 +2,7 @@
 
 This repo implements the [pi0](https://www.physicalintelligence.company/download/pi0.pdf) model from Physical Intelligence (Pi) based on my knowledge of the paper.
 
-The model adopts a MoE-like architecture (or the recent [MoT](https://arxiv.org/abs/2411.04996)), and uses a pre-trained 3B PaliGemma VLM (2.291B to be fine-tuned) and a new set of action expert parameters (0.315B). Block-wise causal masking is used such that VLM block attends to itself, proprioception (sharing weights with action) attends to itself and VLM, and action attends to all; each block is fully bidirectional within. The model is trained with flow matching loss on the output of action expert.
+The model adopts a MoE-like architecture (or the recent [MoT](https://arxiv.org/abs/2411.04996), each expert has its own set of parameters and only interacts through attention), and uses a pre-trained 3B PaliGemma VLM (2.291B to be fine-tuned) and a new set of action expert parameters (0.315B). Block-wise causal masking is used such that VLM block attends to itself, proprioception (sharing weights with action) attends to itself and VLM, and action attends to all; each block is fully bidirectional within. The model is trained with flow matching loss on the action chunk output from the action expert.
 
 If you find a bug or think I may have misunderstood part of the architecture based on the paper, please raise an issue or email me.
 
@@ -55,18 +55,18 @@ This roughtly takes 13.5GB of VRAM (float32).
 
 ### Training details
 
-The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per GPU batch size 16 and thus gradient accumulation step 8), or 12 hours with H100s. Bfloat16 and 8-bit optimizer were used to reduce VRAM usage. Action and propriocetion data were normalized in [-1, 1].
+The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per GPU batch size 16 and thus gradient accumulation step 8), or 12 hours with H100s. torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage. Action and propriocetion data were normalized in [-1, 1].
 
 ### Inference speed
 
-Inference involves one forward pass through PaliGemma (saving KV cache), and then 10 flow matching steps through the action expert. With RTX 4090 and float32 and torch.compile disabled (used in training for reducing VRAM usage), inference takes 230ms, which is much worse than the 73ms from the Pi0 paper (see their Table I). The main difference lies in the 10 steps through the action expert: while Pi0 takes only 27ms for 10 steps, my current implementation takes 17ms per step. Flash/FlexAttention etc. might help.
+Inference involves one forward pass through PaliGemma (saving KV cache), and then 10 flow matching steps through the action expert. With RTX 4090 and float32, inference takes 230ms, which is much worse than the 73ms from the Pi0 paper (see their Table I). The main difference lies in the 10 steps through the action expert: while Pi's implementation takes only 27ms for 10 steps, mine takes 17ms per step. Flash/FlexAttention etc. might help.
 
 ### Eval results
 
 Bridge policies run all four predicted action steps, while fractal policies run the first two steps of the predicted four.
 <!-- This setup is practical given bridge data is 5Hz and fractal data is 3Hz, and the policy inference can be 4Hz. -->
 
-Success rates in **visual matching** setting in Simpler (results in visual aggregation setting coming soon)
+Success rates in **visual matching** setting in Simpler with float32 (results in visual aggregation setting coming soon)
 
 | Policy | Carrot on plate | Eggplant in basket | Spoon on towel | Stack cube |
 |:------:|:---------------:|:------------------:|:--------------:|:----------:|
@@ -101,7 +101,7 @@ Run (with enough RAM) [slurm/modify_rlds.sh](slurm/modify_rlds.sh), which resize
 
 See examples in the [slurm](slurm/) folder. TFDS dataloading takes a growing amount of CPU RAM and roughly peaks at about 300-400GB with one dataloader in each DDP process.
 
-[Discussion on RAM](https://github.com/openvla/openvla/issues/4) | [Possible error if running quantization](doc/error.md#9) | [My observations/lessons from training](doc/notes.md)
+[Discussion on RAM](https://github.com/openvla/openvla/issues/4) | [Possible error if running quantization](doc/error.md#9) | [My observations / lessons from training](doc/notes.md)
 
 ## Run evaluation
 
@@ -111,7 +111,7 @@ See examples in the [slurm](slurm/) folder. Currently they use the dataset stati
 
 ## Things to implement / try
 
-Tune sinusoidal embedding and RoPE parameters to better encode the relatively low number of action tokens and timestep. Multi-image (history) as input. Use EMA (Simpler evals seem sensitive right now). Switch to GPU Simpler. Fine-tuning by adding a new expert (e.g., second camera view into pre-trained DINO/SigLIP) and gradual unmasking. Co-training with (self-)supervision on modalities other than action.
+Tune sinusoidal embedding and RoPE parameters to better encode the relatively low number of action tokens and timestep. Multi-image (history) as input. Use EMA. Switch to GPU Simpler. Fine-tuning by adding a new expert (e.g., second camera view into pre-trained DINO/SigLIP) and gradual unmasking. Co-training with (self-)supervision on modalities other than action.
 
 ## Acknowledgement
 

@@ -90,12 +90,12 @@ class SimplerAdapter(BaseEnvAdapter):
             )
 
         return {
-            "pixel_values": model_inputs["pixel_values"],
             "input_ids": model_inputs["input_ids"],
+            "pixel_values": model_inputs["pixel_values"],
+            "attention_mask": model_inputs["attention_mask"],
             "proprios": torch.as_tensor(proprio, dtype=torch.float32)[
                 None, None
             ],  # [B, T, dim]
-            "attention_mask": model_inputs["attention_mask"],
         }
 
     def postprocess(

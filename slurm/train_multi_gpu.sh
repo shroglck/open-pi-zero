@@ -34,4 +34,6 @@ HYDRA_FULL_ERROR=1 uv run torchrun \
   --config-name=bridge \
   action_lr=0.00005 \
   vlm_lr=0.00005 \
-  flow_schedule=gamma
+  flow_schedule=gamma \
+  use_torch_compile=True \
+  use_bfloat16=True

@@ -270,9 +270,7 @@ def forward_mixture_attn(
     # Apply the softmax / dropout
     attn_weights = attn_weights + attention_mask
     # [Batch_Size, Num_Heads_Q, Full_Seq_Len, Full_Seq_Len]
-    attn_weights = nn.functional.softmax(
-        attn_weights, dim=-1, dtype=torch.float32
-    ).type_as(query_states)
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=attn_weights.dtype)
     attn_weights = nn.functional.dropout(
         attn_weights,
         p=attention_dropout,
@@ -390,7 +388,7 @@ if __name__ == "__main__":
         dummy_num_image_tokens,
         cfg.cond_steps,
         cfg.horizon_steps,
-    ]
+    ]  # not considering text (padding)
     total_len = sum(q_lens)
     inputs_embeds = torch.randn(
         1,
@@ -413,7 +411,7 @@ if __name__ == "__main__":
 
     kv_caches = model.build_mixture_caches()
     position_ids_all = {
-        "vlm": torch.arange(dummy_num_image_tokens)[None],  # no text
+        "vlm": torch.arange(dummy_num_image_tokens)[None],
         "proprio": torch.arange(cfg.cond_steps)[None],
         "action": torch.arange(cfg.horizon_steps)[None],
     }  # add batch dim

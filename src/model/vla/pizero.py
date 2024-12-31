@@ -7,9 +7,7 @@ Potentially customized to add/remove mixtures, e.g., remove proprio or add anoth
 
 """
 
-import glob
 import logging
-import os
 from typing import Optional, Tuple
 
 import hydra
@@ -21,7 +19,6 @@ from src.model.vla.modules import (
     ActionEncoder,
     SinusoidalPosEmb,
 )
-from src.model.vla.sampling import sample_from_transformed_beta
 from src.utils.decorator import NoSyncBase
 from src.utils.monitor import log_execution_time
 
@@ -37,12 +34,20 @@ class PiZero(nn.Module, NoSyncBase):
         self.vocab_size = cfg.vocab_size
         self.pad_token_id = cfg.pad_token_id
         self.image_token_index = cfg.image_token_index
+        self.use_lm_head = cfg.get("use_lm_head", False)
+
+        self.max_image_text_tokens = cfg.max_image_text_tokens
         self.num_proprio_tokens = cfg.cond_steps
         self.num_action_tokens = cfg.horizon_steps
+        self.total_num_tokens = (
+            self.max_image_text_tokens
+            + self.num_proprio_tokens
+            + self.num_action_tokens
+        )
+
         self.image_text_hidden_size = cfg.mixture.vlm.hidden_size
         self.proprio_hidden_size = cfg.mixture.proprio.hidden_size
         self.action_hidden_size = cfg.mixture.action.hidden_size
-        self.use_lm_head = cfg.get("use_lm_head", False)
 
         # Action parameterization
         self.num_inference_steps = cfg.num_inference_steps
@@ -51,14 +56,6 @@ class PiZero(nn.Module, NoSyncBase):
         self.proprio_dim = cfg.proprio_dim
         self.final_action_clip_value = cfg.final_action_clip_value
         self.flow_sig_min = cfg.get("flow_sig_min", 0.001)
-        self.flow_gamma_alpha = cfg.get("flow_gamma_alpha", 1.5)
-        self.flow_gamma_beta = cfg.get("flow_gamma_beta", 1)
-        self.flow_gamma_max = 1 - self.flow_sig_min
-        self.flow_schedule = cfg.get("flow_schedule", "gamma")
-        assert self.flow_schedule in [
-            "uniform",
-            "gamma",
-        ], f"Invalid flow matching timestep sampling schedule: {self.flow_schedule}"
 
         # text input only
         self.embed_tokens = nn.Embedding(
@@ -159,6 +156,9 @@ class PiZero(nn.Module, NoSyncBase):
     @log_execution_time()
     def load_pretrained_weights(self):
         """vision, projector, lm from paligemma"""
+        import glob
+        import os
+
         from safetensors import safe_open
 
         # load tensors from files
@@ -264,75 +264,9 @@ class PiZero(nn.Module, NoSyncBase):
 
     # ---------- Input preparation ----------#
 
-    def _merge_input_ids_with_pixel_values(
-        self,
-        input_ids: torch.LongTensor,
-        pixel_values: torch.FloatTensor,
-    ) -> torch.FloatTensor:
-        # Extract input embeddings
-        # [Batch_Size, Seq_Len, Hidden_Size]
-        inputs_embeds = self.embed_tokens(input_ids)
-
-        # Extract image features from siglip and projector
-        # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim]
-        selected_image_feature = self.vision_tower(pixel_values.type_as(inputs_embeds))
-        # [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Hidden_Size]
-        image_features = self.multi_modal_projector(
-            selected_image_feature
-        ).type_as(
-            inputs_embeds
-        )  # need to explicitly cast to bfloat16 when using qlora, otherwise masked_scatter complains; seems an issue with masked_scatter and amp
-
-        # Normalize the image features
-        _, _, embed_dim = image_features.shape
-        bsz, seq_len = input_ids.shape
-        # [Batch_Size, Seq_Len, Hidden_Size]
-        scaled_image_features = image_features / (self.image_text_hidden_size**0.5)
-
-        # Combine the embeddings of the image tokens, the text tokens and mask out all the padding tokens.
-        final_embedding = torch.zeros(
-            bsz,
-            seq_len,
-            embed_dim,
-            dtype=inputs_embeds.dtype,
-            device=inputs_embeds.device,
-        )  # already padded since initialized as pad_token_id
-        # [Batch_Size, Seq_Len]. True for text tokens
-        text_mask = (input_ids != self.image_token_index) & (
-            input_ids != self.pad_token_id
-        )
-        # [Batch_Size, Seq_Len]. True for image tokens
-        image_mask = input_ids == self.image_token_index
-
-        # We need to expand the masks to the embedding dimension otherwise we can't use them in torch.where
-        text_mask_expanded = text_mask.unsqueeze(-1).expand(-1, -1, embed_dim)
-        image_mask_expanded = image_mask.unsqueeze(-1).expand(-1, -1, embed_dim)
-
-        # Add the text embeddings
-        final_embedding = torch.where(
-            text_mask_expanded, inputs_embeds, final_embedding
-        )
-        # Insert image embeddings. We can't use torch.where because the sequence length of scaled_image_features is not equal to the sequence length of the final embedding
-        final_embedding = final_embedding.masked_scatter(
-            image_mask_expanded, scaled_image_features
-        )
-        return final_embedding
-
-    def _build_causal_mask_and_position_ids_for_action(
-        self,
-        attention_mask: torch.Tensor,
-    ) -> Tuple[torch.FloatTensor, dict[torch.LongTensor]]:
-        """image/text, proprio, action"""
-        device = attention_mask.device
-        num_image_text_tokens = torch.sum(attention_mask, dim=1)
-        bsz, max_num_image_text_tokens = attention_mask.shape
-        total_len = (
-            max_num_image_text_tokens + self.num_proprio_tokens + self.num_action_tokens
-        )
-        proprio_start = max_num_image_text_tokens
-        proprio_end = max_num_image_text_tokens + self.num_proprio_tokens
-        action_start = proprio_end
-
+    def build_causal_mask_and_position_ids(
+        self, attention_mask: torch.Tensor, dtype: torch.dtype
+    ) -> Tuple[torch.FloatTensor]:
         """
         block attention --- padding for unused text tokens
 
@@ -345,15 +279,19 @@ class PiZero(nn.Module, NoSyncBase):
         action      x        x        x                 x       x      x
         action      x        x        x                 x       x      x
         """
+        bsz = attention_mask.size(0)
+        proprio_start = self.max_image_text_tokens
+        proprio_end = self.max_image_text_tokens + self.num_proprio_tokens
+        action_start = proprio_end
+        image_text_token_cnts = torch.sum(attention_mask, dim=1)
         causal_mask = torch.full(
-            (bsz, total_len, total_len),
-            torch.finfo(torch.float32).min,
-            dtype=torch.float32,
-            device=device,
+            (bsz, self.total_num_tokens, self.total_num_tokens),
+            torch.finfo(dtype).min,
+            dtype=dtype,
         )  # smallest value, avoid using inf for softmax nan issues with padding
-        for idx, num in enumerate(num_image_text_tokens):
-            causal_mask[idx, :num, :num] = 0  # image/text attend to itself
-            causal_mask[idx, proprio_start:, :num] = (
+        for idx, cnt in enumerate(image_text_token_cnts):
+            causal_mask[idx, :cnt, :cnt] = 0  # image/text attend to itself
+            causal_mask[idx, proprio_start:, :cnt] = (
                 0  # proprio/action attend to image/text
             )
         causal_mask[:, proprio_start:proprio_end, proprio_start:proprio_end] = (
@@ -363,32 +301,43 @@ class PiZero(nn.Module, NoSyncBase):
             0  # action attend to itself and proprio
         )
 
-        # Add the head dimension
+        # add the head dimension
         # [Batch_Size, Q_Len, KV_Len] -> [Batch_Size, Num_Heads_Q, Q_Len, KV_Len]
         causal_mask = causal_mask.unsqueeze(1)
 
-        # position ids for each blocks, ignore padding --- start at 1
-        position_ids_all = {
-            "vlm": torch.arange(1, max_num_image_text_tokens + 1)[None]
-            .expand(bsz, -1)
-            .to(device),
-            "proprio": torch.arange(1, self.num_proprio_tokens + 1)[None]
-            .expand(bsz, -1)
-            .to(device),
-            "action": torch.arange(1, self.num_action_tokens + 1)[None]
-            .expand(bsz, -1)
-            .to(device),
-        }
+        # position ids for each blocks --- start at 1
+        vlm_position_ids = torch.arange(1, self.max_image_text_tokens + 1).repeat(
+            bsz, 1
+        )
+        proprio_position_ids = torch.arange(1, self.num_proprio_tokens + 1).repeat(
+            bsz, 1
+        )
+        action_position_ids = torch.arange(
+            self.num_proprio_tokens + 1,
+            self.num_proprio_tokens + self.num_action_tokens + 1,
+        ).repeat(bsz, 1)
         # since proprio and action share the same mixture weights, makes sense to use [0 (proprio), 1 (action), 2 (action), ...] instead of [0 (proprio), 0 (action), 1 (action), ...]
-        position_ids_all["action"] += self.num_proprio_tokens
-        return causal_mask, position_ids_all
+        return causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids
 
-    def _build_causal_mask_and_position_ids_for_text(
+    def split_full_mask_into_submasks(
+        self, causal_mask: torch.FloatTensor
+    ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        """split into ones for paligemma and action"""
+        image_text_proprio_mask = causal_mask[
+            ...,
+            : self.max_image_text_tokens + self.num_proprio_tokens,
+            : self.max_image_text_tokens + self.num_proprio_tokens,
+        ]
+        action_mask = causal_mask[..., -self.num_action_tokens :, :]
+        return image_text_proprio_mask, action_mask
+
+    def build_causal_mask_and_position_ids_for_text(
         self,
         q_len: int,
         attention_mask: torch.Tensor,
         kv_cache: Optional[KVCache] = None,
     ) -> Tuple[torch.FloatTensor, torch.FloatTensor]:
+        # TODO(allenzren): not optimized for inference
         dtype, device = attention_mask.dtype, attention_mask.device
 
         if kv_cache is None or kv_cache.num_items() == 0:
@@ -428,40 +377,77 @@ class PiZero(nn.Module, NoSyncBase):
 
     # ---------- Inference ----------#
 
-    @torch.no_grad()
+    def _forward_siglip_and_text_embedding(
+        self,
+        input_ids: torch.LongTensor,
+        pixel_values: torch.FloatTensor,
+    ) -> torch.FloatTensor:
+        # Text embedding
+        # [Batch_Size, Seq_Len, Hidden_Size]
+        inputs_embeds = self.embed_tokens(input_ids)
+
+        # Image features from siglip and projector
+        # [Batch_Size, Channels, Height, Width] -> [Batch_Size, Num_Patches, Embed_Dim] -> [Batch_Size, Num_Patches, Hidden_Size]
+        selected_image_feature = self.vision_tower(pixel_values.type_as(inputs_embeds))
+        image_features = self.multi_modal_projector(selected_image_feature)
+
+        # Normalize the image features
+        _, _, embed_dim = image_features.shape
+        bsz, seq_len = input_ids.shape
+        scaled_image_features = image_features / (self.image_text_hidden_size**0.5)
+
+        # Combine the embeddings of the image tokens, the text tokens and mask out all the padding tokens.
+        final_embedding = (
+            torch.ones(
+                bsz,
+                seq_len,
+                embed_dim,
+                dtype=inputs_embeds.dtype,
+                device=inputs_embeds.device,
+            )
+            * self.pad_token_id
+        )  # start with padded
+        # [Batch_Size, Seq_Len]
+        text_mask = (input_ids != self.image_token_index) & (
+            input_ids != self.pad_token_id
+        )
+        image_mask = input_ids == self.image_token_index
+
+        # Add text and image embeddings
+        final_embedding[text_mask] = inputs_embeds[text_mask]
+        for i in range(bsz):
+            image_indices = image_mask[i].nonzero(as_tuple=True)[0]
+            num_image_tokens = len(image_indices)
+            final_embedding[i, image_indices] = scaled_image_features[
+                i, :num_image_tokens
+            ]
+        return final_embedding
+
     def infer_action(
         self,
         input_ids: torch.LongTensor,
         pixel_values: torch.FloatTensor,
-        attention_mask: torch.Tensor,
+        image_text_proprio_mask: torch.FloatTensor,
+        action_mask: torch.FloatTensor,
+        vlm_position_ids: torch.LongTensor,
+        proprio_position_ids: torch.LongTensor,
+        action_position_ids: torch.LongTensor,
         proprios: torch.FloatTensor,
-        kv_caches: Optional[dict[KVCache]] = None,
     ) -> torch.FloatTensor:
-        kv_caches = (
-            self.joint_model.build_mixture_caches() if kv_caches is None else kv_caches
-        )
+        kv_caches = self.joint_model.build_mixture_caches()
 
         # Merge the text tokens and the image tokens
-        inputs_embeds = self._merge_input_ids_with_pixel_values(input_ids, pixel_values)
-
-        # Build causal mask and position ids for action
-        (
-            causal_mask,
-            position_ids_all,
-        ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
-        max_num_image_text_tokens = attention_mask.size(1)
+        inputs_embeds = self._forward_siglip_and_text_embedding(input_ids, pixel_values)
 
         # Encode proprio
         proprio_embeds = self.proprio_encoder(proprios)
 
         # forward pass thru the vlm and proprio, cache the kv
-        proprio_start = max_num_image_text_tokens + self.num_proprio_tokens
-        image_text_proprio_mask = causal_mask[..., :proprio_start, :proprio_start]
         _, kv_caches = self.joint_model(
             attention_mask=image_text_proprio_mask,
             position_ids_all={
-                "vlm": position_ids_all["vlm"],
-                "proprio": position_ids_all["proprio"],
+                "vlm": vlm_position_ids,
+                "proprio": proprio_position_ids,
             },
             embeds_all={"vlm": inputs_embeds, "proprio": proprio_embeds},
             kv_caches=kv_caches,
@@ -482,7 +468,6 @@ class PiZero(nn.Module, NoSyncBase):
         # forward euler integration --- using kv caches of vlm and proprio
         delta_t = 1.0 / self.num_inference_steps
         t = torch.zeros(bsz, device=input_ids.device)
-        action_mask = causal_mask[..., -self.num_action_tokens :, :]
         for _ in range(self.num_inference_steps):
             # encode action and time into embedding
             time_cond = self.time_embedding(t)
@@ -494,7 +479,7 @@ class PiZero(nn.Module, NoSyncBase):
             # [Batch_Size, Horizon_Steps, Embed_Dim]
             action_embeds = self.joint_model(
                 attention_mask=action_mask,
-                position_ids_all={"action": position_ids_all["action"]},
+                position_ids_all={"action": action_position_ids},
                 embeds_all={"action": action_embeds},
                 time_cond=time_cond,
                 kv_caches=kv_caches,
@@ -514,27 +499,20 @@ class PiZero(nn.Module, NoSyncBase):
             )
         return action
 
-    @torch.no_grad()
     def infer_action_naive(
         self,
         input_ids: torch.LongTensor,
         pixel_values: torch.FloatTensor,
-        attention_mask: torch.Tensor,
+        causal_mask: torch.FloatTensor,
+        vlm_position_ids: torch.LongTensor,
+        proprio_position_ids: torch.LongTensor,
+        action_position_ids: torch.LongTensor,
         proprios: torch.FloatTensor,
-        kv_caches: Optional[dict[KVCache]] = None,
     ) -> torch.FloatTensor:
-        kv_caches = (
-            self.joint_model.build_mixture_caches() if kv_caches is None else kv_caches
-        )
+        kv_caches = self.joint_model.build_mixture_caches()
 
         # Merge the text tokens and the image tokens
-        inputs_embeds = self._merge_input_ids_with_pixel_values(input_ids, pixel_values)
-
-        # Build causal mask and position ids for action
-        (
-            causal_mask,
-            position_ids_all,
-        ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
+        inputs_embeds = self._forward_siglip_and_text_embedding(input_ids, pixel_values)
 
         # Encode proprio
         proprio_embeds = self.proprio_encoder(proprios)
@@ -561,10 +539,13 @@ class PiZero(nn.Module, NoSyncBase):
                 action_embeds = self.action_encoder(action)
             else:
                 action_embeds = self.action_encoder(action, time_cond)
-            # [Batch_Size, Horizon_Steps, Embed_Dim]
             action_embeds = self.joint_model(
                 attention_mask=causal_mask,
-                position_ids_all=position_ids_all,
+                position_ids_all={
+                    "vlm": vlm_position_ids,
+                    "proprio": proprio_position_ids,
+                    "action": action_position_ids,
+                },
                 embeds_all={
                     "vlm": inputs_embeds.clone(),  # clone needed due to modified in-place
                     "proprio": proprio_embeds.clone(),
@@ -596,20 +577,20 @@ class PiZero(nn.Module, NoSyncBase):
         attention_mask: torch.Tensor,
         kv_cache: Optional[KVCache] = None,
     ) -> Tuple:
-        # Merge the text tokens and the image tokens
-        inputs_embeds = self._merge_input_ids_with_pixel_values(input_ids, pixel_values)
+        # text tokens + image tokens
+        inputs_embeds = self._forward_siglip_and_text_embedding(input_ids, pixel_values)
 
-        # Build causal mask and position ids for text
+        # build causal mask and position ids for text
         q_len = input_ids.size(1)
         (
-            attention_mask,
+            causal_mask,
             position_ids,
-        ) = self._build_causal_mask_and_position_ids_for_text(
+        ) = self.build_causal_mask_and_position_ids_for_text(
             q_len, attention_mask, kv_cache
         )
 
         hidden_states = self.joint_model(
-            attention_mask=attention_mask,
+            attention_mask=causal_mask,
             position_ids_all={"vlm": position_ids},
             embeds_all={"vlm": inputs_embeds},
             kv_caches={"vlm": kv_cache},
@@ -638,47 +619,27 @@ class PiZero(nn.Module, NoSyncBase):
 
     def forward(
         self,
-        pixel_values: torch.ByteTensor,
         input_ids: torch.LongTensor,
+        pixel_values: torch.ByteTensor,
+        causal_mask: torch.FloatTensor,
+        vlm_position_ids: torch.LongTensor,
+        proprio_position_ids: torch.LongTensor,
+        action_position_ids: torch.LongTensor,
         proprios: torch.FloatTensor,
         actions: torch.FloatTensor,
-        attention_mask: torch.Tensor,
+        t: torch.FloatTensor,
     ) -> torch.FloatTensor:
-        """diffusion / flow matching loss for action prediction, no cache"""
-        device = input_ids.device
-        bsz = len(input_ids)
-        x1 = actions
-        if self.flow_schedule == "uniform":  # uniform between 0 and 1
-            """https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb"""
-            eps = 1e-5
-            t = (
-                torch.rand(1, device=device) + torch.arange(bsz, device=device) / bsz
-            ) % (1 - eps)
-        elif self.flow_schedule == "gamma":  # from pi0 paper
-            t = sample_from_transformed_beta(
-                self.flow_gamma_alpha,
-                self.flow_gamma_beta,
-                self.flow_gamma_max,
-                size=bsz,
-            )
-            t = torch.as_tensor(t, dtype=actions.dtype).to(device)  # (B,)
-        # x ~ p_t(x0)
-        x0 = torch.randn_like(actions, device=device)
-
-        # get noisy action
+        """flow matching loss for action prediction, no use of kv cache"""
+        # noisy action
         # [Batch_Size, Horizon_Steps, Action_Dim]
+        x0 = torch.randn_like(actions, device=t.device, dtype=t.dtype)
+        x1 = actions
         psi_t = self.psi_t(x0, x1, t)
 
-        # Merge the text tokens and the image tokens
-        inputs_embeds = self._merge_input_ids_with_pixel_values(input_ids, pixel_values)
+        # text tokens + image tokens
+        inputs_embeds = self._forward_siglip_and_text_embedding(input_ids, pixel_values)
 
-        # Build causal mask and position ids for action
-        (
-            causal_mask,
-            position_ids_all,
-        ) = self._build_causal_mask_and_position_ids_for_action(attention_mask)
-
-        # Encode proprio
+        # proprio
         proprio_embeds = self.proprio_encoder(proprios)
 
         # inference with noisy action
@@ -689,10 +650,13 @@ class PiZero(nn.Module, NoSyncBase):
             action_embeds = self.action_encoder(psi_t)
         else:
             action_embeds = self.action_encoder(psi_t, time_cond)
-        # [Batch_Size, Horizon_Steps, Embed_Dim]
         action_embeds = self.joint_model(
             attention_mask=causal_mask,
-            position_ids_all=position_ids_all,
+            position_ids_all={
+                "vlm": vlm_position_ids,
+                "proprio": proprio_position_ids,
+                "action": action_position_ids,
+            },
             embeds_all={
                 "vlm": inputs_embeds,
                 "proprio": proprio_embeds,
@@ -705,9 +669,33 @@ class PiZero(nn.Module, NoSyncBase):
         # [Batch_Size, Horizon_Steps, Action_Dim]
         v_psi = self.action_decoder(action_embeds)
 
-        # Compare to true velocity
+        # compare to true velocity
         d_psi = x1 - (1 - self.flow_sig_min) * x0
         return torch.mean((v_psi - d_psi) ** 2)
+
+
+class PiZeroInference(PiZero):
+    def forward(
+        self,
+        input_ids: torch.LongTensor,
+        pixel_values: torch.FloatTensor,
+        image_text_proprio_mask: torch.FloatTensor,
+        action_mask: torch.FloatTensor,
+        vlm_position_ids: torch.LongTensor,
+        proprio_position_ids: torch.LongTensor,
+        action_position_ids: torch.LongTensor,
+        proprios: torch.FloatTensor,
+    ) -> torch.FloatTensor:
+        return super().infer_action(
+            input_ids,
+            pixel_values,
+            image_text_proprio_mask,
+            action_mask,
+            vlm_position_ids,
+            proprio_position_ids,
+            action_position_ids,
+            proprios,
+        )
 
 
 if __name__ == "__main__":
@@ -756,9 +744,7 @@ if __name__ == "__main__":
         "this image shows ",
         "this is a nice portrait of London because ",
     ][:bsz]
-    dummy_proprio = torch.rand(bsz, config.cond_steps, config.action_dim).to(
-        device
-    )  # not used if text_only
+    dummy_proprio = torch.rand(bsz, config.cond_steps, config.action_dim)
 
     # tokenizer
     tokenizer = AutoTokenizer.from_pretrained(
@@ -772,11 +758,9 @@ if __name__ == "__main__":
 
     # process image and text
     model_inputs = processor(text=dummy_texts, images=dummy_images)
-    input_ids = model_inputs["input_ids"].to(device)
-    attention_mask = model_inputs["attention_mask"].to(
-        device
-    )  # with padding if bsz > 1
-    pixel_values = model_inputs["pixel_values"].to(device)
+    input_ids = model_inputs["input_ids"]
+    attention_mask = model_inputs["attention_mask"]
+    pixel_values = model_inputs["pixel_values"]
 
     # inference - text or actions
     start_time = time.time()
@@ -792,9 +776,9 @@ if __name__ == "__main__":
 
         for _ in range(num_tokens_to_generate):
             outputs = model.infer_text(
-                input_ids=input_ids,
-                pixel_values=pixel_values,
-                attention_mask=attention_mask,
+                input_ids=input_ids.to(device),
+                pixel_values=pixel_values.to(device),
+                attention_mask=attention_mask.to(device),
                 kv_cache=kv_cache,
             )
             next_token_logits = outputs["logits"][:, -1, :]
@@ -817,23 +801,46 @@ if __name__ == "__main__":
         print("Prompt:", dummy_texts[0])
         print("Generated text:", decoded)
     elif args.loss_only:
-        dummy_actions = torch.randn(bsz, config.horizon_steps, config.action_dim).to(
-            device
+        dummy_actions = torch.randn(bsz, config.horizon_steps, config.action_dim)
+        causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids = (
+            model.build_causal_mask_and_position_ids(
+                attention_mask, dtype=torch.float32
+            )
         )
+        image_text_proprio_mask, action_mask = model.split_full_mask_into_submasks(
+            causal_mask
+        )
+        t = torch.rand(bsz)
         loss = model(
-            pixel_values=pixel_values,
-            input_ids=input_ids,
-            proprios=dummy_proprio,
-            actions=dummy_actions,
-            attention_mask=attention_mask,
+            input_ids=input_ids.to(device),
+            pixel_values=pixel_values.to(device),
+            causal_mask=causal_mask.to(device),
+            vlm_position_ids=vlm_position_ids.to(device),
+            proprio_position_ids=proprio_position_ids.to(device),
+            action_position_ids=action_position_ids.to(device),
+            proprios=dummy_proprio.to(device),
+            actions=dummy_actions.to(device),
+            t=t.to(device),
         )
         print("Loss:", loss)
     else:  # dummy action generation
+        causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids = (
+            model.build_causal_mask_and_position_ids(
+                attention_mask, dtype=torch.float32
+            )
+        )
+        image_text_proprio_mask, action_mask = model.split_full_mask_into_submasks(
+            causal_mask
+        )
         actions = model.infer_action(
-            input_ids=input_ids,
-            pixel_values=pixel_values,
-            attention_mask=attention_mask,  # only for image/text
-            proprios=dummy_proprio,
+            input_ids=input_ids.to(device),
+            pixel_values=pixel_values.to(device),
+            image_text_proprio_mask=image_text_proprio_mask.to(device),
+            action_mask=action_mask.to(device),
+            vlm_position_ids=vlm_position_ids.to(device),
+            proprio_position_ids=proprio_position_ids.to(device),
+            action_position_ids=action_position_ids.to(device),
+            proprios=dummy_proprio.to(device),
         )
         print("Final action dimensions:", actions.shape)
         print("Final action values:", actions)

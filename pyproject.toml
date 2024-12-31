@@ -32,16 +32,6 @@ dependencies = [
     "wandb",
 ]
 
-[project.optional-dependencies]
-simpler = [
-    "mani-skill2-real2sim",
-    "simpler-env",
-]
-
-[tool.uv.sources]
-mani-skill2-real2sim = { path = "../SimplerEnv/ManiSkill2_real2sim", editable = true }
-simpler-env = { path = "../SimplerEnv", editable = true }
-
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"

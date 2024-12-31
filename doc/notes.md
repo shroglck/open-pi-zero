@@ -1,9 +1,13 @@
-## Notes
+## Observations from training
 
 Tried Gaussian Fourier features for proprio/action input but did not help.
 
-adaLN(-Zero) for time conditioning seems to speed up training a bit initially, but does not make a significant difference after a while.
+adaLN(-Zero) for time conditioning seemed to speed up training a bit initially, but did not make a significant difference after a while.
 
-Overall, Gamma sampling in flow matching timesteps achieves better validation loss, but I usually see Uniform sampling matching or even outperforming in validation accuracy with low threshold (e.g.,, predicted actions within 0.05 from the normalized ground-truth ones in all dimensions).
+Overall, Gamma sampling in flow matching timesteps achieved better validation loss, but I usually saw Uniform sampling matching or even outperforming in validation accuracy with low threshold (e.g., predicted actions within 0.05 from the normalized ground-truth ones in all dimensions). Wigh high threshold like 0.3 or 0.5, Gamma seemed to consistenly outperform Uniform.
 
-Is flow matching / diffusion objective more stable than cross-entropy so larger lr can be used?
+I was able to train with learning rate as high as 3e-4, thanks to the stability of the flow matching / diffusion objective?
+
+I switched to using [-1, 1] normalization from unit Gaussian used in Octo because I find the bridge dataset has some weird, very large action values (e.g., 80). Without clipping after being normalized with unit std, it causes a lot of spikes in training loss.
+
+Not using pre-trained PaliGemma weights trained much worse. Training the action expert only (freezing PaliGemma) did not work at all.

@@ -1,5 +1,5 @@
 """
-Main training agent. Using bfloat16 and AMP.
+Main training agent. Using torch.compile and bfloat16 by default. Optionally CPU offloading and (Q)LoRA. Not using AMP.
 
 """
 
@@ -11,12 +11,12 @@ from collections import deque
 import einops
 import numpy as np
 import torch
+import wandb
 from omegaconf import OmegaConf
 from PIL import Image
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
-import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.pizero import PiZero
 from src.model.vla.processing import VLAProcessor
@@ -78,9 +78,16 @@ class TrainAgent:
         self.model.freeze_unused_weights()
         if cfg.lora:
             self.model.freeze_non_lora_weights_in_vlm()
-        self.model = self.model.to(torch.bfloat16)
-        self.model.to(self.device)  # quantization happens
-        log.info(f"Using cuda device: {self.device}")
+        self.dtype = torch.bfloat16 if cfg.get("use_bfloat16", True) else torch.float32
+        self.model.to(self.dtype)
+        self.model.to(self.device)
+        if cfg.get("use_torch_compile", False):
+            self.model = torch.compile(
+                self.model,
+                mode="default",  # "reduce-overhead" speeds up a lot and reduces VRAM usage more, but causes nan loss on L40, maybe issue with cudagraphs; max-autotune(-no-cudagraphs) not working
+                # backend="cudagraphs", # inductor
+            )  # https://pytorch.org/docs/main/generated/torch.compile.html
+        log.info(f"Using cuda device: {self.device}, dtype: {self.dtype}")
         if self.multi_gpu:
             log.info(
                 f"Using {local_world_size} GPUs in each of the {cfg.n_nodes} nodes"
@@ -215,6 +222,19 @@ class TrainAgent:
         if cfg.resume_checkpoint_path:
             self.load_optimizer(cfg.resume_checkpoint_path)
 
+        # flow matching timestep sampling
+        self.flow_schedule = cfg.get("flow_schedule", "gamma")
+        assert self.flow_schedule in [
+            "uniform",
+            "gamma",
+        ], f"Invalid flow matching timestep sampling schedule: {self.flow_schedule}"
+        if self.flow_schedule == "gamma":
+            flow_gamma_alpha = cfg.get("flow_gamma_alpha", 1.5)
+            flow_gamma_beta = cfg.get("flow_gamma_beta", 1)
+            self.flow_gamma_max = 1 - cfg.get("flow_sig_min", 0.001)
+            self.gamma_alpha_dist = torch.distributions.Gamma(flow_gamma_alpha, 1)
+            self.gamma_beta_dist = torch.distributions.Gamma(flow_gamma_beta, 1)
+
         # logging
         self.use_wandb = cfg.get("wandb", False)
         if self.use_wandb and self.main_rank:
@@ -233,6 +253,18 @@ class TrainAgent:
         self.checkpoint_dir = os.path.join(self.log_dir, "checkpoint")
         os.makedirs(self.checkpoint_dir, exist_ok=True)
 
+    def sample_fm_time(self, bsz: int) -> torch.FloatTensor:
+        if self.flow_schedule == "uniform":  # uniform between 0 and 1
+            """https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb"""
+            eps = 1e-5
+            t = (torch.rand(1) + torch.arange(bsz) / bsz) % (1 - eps)
+        elif self.flow_schedule == "gamma":  # from pi0 paper
+            x = self.gamma_alpha_dist.sample((bsz,))
+            y = self.gamma_beta_dist.sample((bsz,))
+            z = x / (x + y)
+            t = self.flow_gamma_max * (1 - z)
+        return t
+
     def run(self):
         timer = Timer()
         cnt_batch = 0 if not hasattr(self, "cnt_batch") else self.cnt_batch
@@ -245,7 +277,7 @@ class TrainAgent:
             import torch.distributed as dist
         self.model.train()
 
-        def preprocess_batch(batch):
+        def preprocess_batch(batch, split_mask: bool):
             # TODO(allenzren): support multi-image / proprio history
             images = batch["observation"]["image_primary"]
             proprios = batch["observation"]["proprio"]
@@ -256,18 +288,41 @@ class TrainAgent:
             images = einops.rearrange(
                 images, "B T H W C -> B (T C) H W"
             )  # remove cond_steps dimension
-            model_inputs = self.processor(
-                text=texts, images=images
-            )  # TODO(allenzren): move to dataset pre-processing
-            return {
-                "pixel_values": model_inputs["pixel_values"].to(self.device),
+            model_inputs = self.processor(text=texts, images=images)
+
+            # build causal mask and position ids for action
+            causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids = (
+                self.model.build_causal_mask_and_position_ids(
+                    model_inputs["attention_mask"], self.dtype
+                )
+            )
+
+            # sample flow matching timesteps
+            t = self.sample_fm_time(len(texts))
+
+            inputs = {
                 "input_ids": model_inputs["input_ids"].to(self.device),
-                "proprios": proprios.to(self.device),
-                "actions": actions.to(self.device),
-                "attention_mask": model_inputs["attention_mask"].to(
-                    self.device
-                ),  # with padding if bsz > 1
+                "pixel_values": model_inputs["pixel_values"]
+                .to(self.device)
+                .to(self.dtype),
+                "vlm_position_ids": vlm_position_ids.to(self.device),
+                "proprio_position_ids": proprio_position_ids.to(self.device),
+                "action_position_ids": action_position_ids.to(self.device),
+                "proprios": proprios.to(self.device).to(self.dtype),
+                "actions": actions.to(self.device).to(self.dtype),
+                "t": t.to(self.device).to(self.dtype),
             }
+            if split_mask:
+                image_text_proprio_mask, action_mask = (
+                    self.model.split_full_mask_into_submasks(causal_mask)
+                )
+                inputs["image_text_proprio_mask"] = image_text_proprio_mask.to(
+                    self.device
+                )
+                inputs["action_mask"] = action_mask.to(self.device)
+            else:
+                inputs["causal_mask"] = causal_mask.to(self.device)
+            return inputs
 
         while 1:
             for batch in self.train_dataloader:
@@ -278,7 +333,7 @@ class TrainAgent:
                 action (torch.Size([bsz, window, horizon, action_dim], float32)
                 action_pad_mask (torch.Size([bsz, window, horizon, action_dim]))
                 """
-                inputs = preprocess_batch(batch)
+                inputs = preprocess_batch(batch, split_mask=False)
                 if self.debug and cnt_batch == 0:
                     images = batch["observation"]["image_primary"]
                     proprios = batch["observation"]["proprio"]
@@ -305,15 +360,13 @@ class TrainAgent:
                 # make sure only syncing when taking gradient steps
                 if (cnt_batch + 1) % self.grad_accumulation_steps != 0:
                     with self.model.no_sync():
-                        with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
-                            loss_train = self.model(**inputs)
+                        loss_train = self.model(**inputs)
                         if self.debug:
                             log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                         normalized_loss = loss_train / self.grad_accumulation_steps
                         normalized_loss.backward()
                 else:
-                    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=True):
-                        loss_train = self.model(**inputs)
+                    loss_train = self.model(**inputs)
                     if self.debug:
                         log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                     normalized_loss = loss_train / self.grad_accumulation_steps
@@ -323,7 +376,7 @@ class TrainAgent:
                     torch.nn.utils.clip_grad_norm_(
                         self.trained_parameters,
                         max_norm=self.max_grad_norm,
-                    )  # not work any more because of offload? no error thrown
+                    )  # TODO(allenzren): conflict with offloading?
                     self.action_optimizer.step()
                     self.action_lr_scheduler.step()
                     if self.train_vlm:
@@ -367,15 +420,12 @@ class TrainAgent:
                     with torch.no_grad():
                         for _ in range(self.per_device_num_eval_batch):
                             batch_eval = next(self.val_dataiterator)
-                            inputs = preprocess_batch(batch_eval)
+                            inputs = preprocess_batch(batch_eval, split_mask=True)
                             gt_actions = inputs.pop("actions")
-                            with torch.autocast(
-                                "cuda", dtype=torch.bfloat16, enabled=True
-                            ):
-                                if self.multi_gpu:
-                                    preds = self.model.module.infer_action(**inputs)
-                                else:
-                                    preds = self.model.infer_action(**inputs)
+                            if self.multi_gpu:
+                                preds = self.model.module.infer_action(**inputs)
+                            else:
+                                preds = self.model.infer_action(**inputs)
                             eval_accuracy += get_action_accuracy(
                                 gt_actions, preds, self.eval_thresholds
                             )

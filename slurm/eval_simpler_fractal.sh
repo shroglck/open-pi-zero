@@ -3,7 +3,7 @@
 #SBATCH --job-name=eval-fractal
 #SBATCH --output=logs/eval/%A.out
 #SBATCH --error=logs/eval/%A.err
-#SBATCH --time=3:59:59
+#SBATCH --time=7:59:59
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1

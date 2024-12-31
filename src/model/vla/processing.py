@@ -68,7 +68,7 @@ class VLAProcessor:
         tokenizer,
         num_image_tokens: int,
         max_seq_len: int,
-        tokenizer_padding: str = "longest",
+        tokenizer_padding: str = "max_length",  #  # instead of truncating to longest
     ):
         super().__init__()
 

@@ -1,12 +1,9 @@
 import math
-import os
 from typing import Optional
 
 import torch
 import torch.nn as nn
 from einops import rearrange
-
-from src.utils.decorator import conditional_decorator
 
 
 class SinusoidalPosEmb(nn.Module):
@@ -19,10 +16,9 @@ class SinusoidalPosEmb(nn.Module):
         t: torch.FloatTensor,
         max_period: float = 10000.0,
     ) -> torch.FloatTensor:
-        device = t.device
         half_dim = self.dim // 2
         emb = math.log(max_period) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
+        emb = torch.exp(torch.arange(half_dim, device=t.device, dtype=t.dtype) * -emb)
         emb = t[:, None] * emb[None, :]
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
@@ -77,7 +73,7 @@ class GaussianFourierFeatureTransform(torch.nn.Module):
         self.pi = 3.14159265359
 
     def forward(self, v: torch.FloatTensor) -> torch.FloatTensor:
-        x_proj = torch.matmul(2 * self.pi * v, self.b.to(v.device))
+        x_proj = torch.matmul(2 * self.pi * v, self.b.to(v.device).to(v.dtype))
         return torch.cat([torch.sin(x_proj), torch.cos(x_proj)], -1)
 
 
@@ -91,15 +87,9 @@ class AdaptiveRMSNorm(nn.Module):
         )
         self.to_beta = nn.Linear(dim_cond, dim, bias=False)
 
-    @conditional_decorator(
-        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
-    )
     def _norm(self, x: torch.FloatTensor) -> torch.FloatTensor:
         return x * torch.rsqrt(x.pow(2).mean(-1, keepdim=True) + self.eps)
 
-    @conditional_decorator(
-        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
-    )
     def forward(
         self, x: torch.FloatTensor, cond: torch.FloatTensor
     ) -> torch.FloatTensor:
@@ -122,9 +112,6 @@ class AdaptiveLayerscale(nn.Module):
 
         self.to_adaln_zero_gamma = adaln_zero_gamma_linear
 
-    @conditional_decorator(
-        torch.compile, not (os.environ.get("DISABLE_TORCH_COMPILE") == "1")
-    )
     def forward(
         self, x: torch.FloatTensor, cond: torch.FloatTensor
     ) -> torch.FloatTensor:

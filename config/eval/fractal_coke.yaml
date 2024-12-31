@@ -72,6 +72,7 @@ quantize: False
 lora: False
 lora_r: 32
 lora_dropout: 0.0
+max_image_text_tokens: ${env.adapter.max_seq_len}
 
 # Fixed
 image_token_index: 257152
