@@ -13,7 +13,7 @@ import numpy as np
 import simpler_env
 import torch
 
-from src.model.vla.pizero import PiZero
+from src.model.vla.pizero import PiZeroInference
 from src.utils.monitor import log_allocated_gpu_memory, log_execution_time
 
 log = logging.getLogger(__name__)
@@ -27,12 +27,8 @@ class EvalAgent:
         np.random.seed(self.seed)
         torch.manual_seed(self.seed)
 
-        # disable torch compile
-        os.environ["DISABLE_TORCH_COMPILE"] = "1"
-
         # devices
-        self.gpu_id = cfg.gpu_id
-        self.device = torch.device(f"cuda:{self.gpu_id}")
+        self.device = torch.device(f"cuda:{cfg.gpu_id}")
 
         # training params
         self.n_eval_episode = cfg.n_eval_episode
@@ -45,15 +41,23 @@ class EvalAgent:
         # torch.set_float32_matmul_precision("medium")  # highest, high
         # torch.backends.cudnn.benchmark = True # for vit conv layers
 
-        # model --- about 16gb with float32
-        self.model = PiZero(cfg, use_ddp=False)
+        # model
+        self.dtype = torch.bfloat16 if cfg.get("use_bf16", False) else torch.float32
+        self.model = PiZeroInference(cfg, use_ddp=False)
         self.load_checkpoint(cfg.checkpoint_path)
         self.model.freeze_all_weights()
-        self.use_bf16 = cfg.get("use_bf16", False)
-        if self.use_bf16:
-            self.model = self.model.to(torch.bfloat16)
-        self.model.to(self.device)  # haven't tested quantization
-        # self.model = torch.compile(self.model, mode="max-autotune")
+        self.model.to(self.dtype)
+        self.model.to(self.device)  # TODO(allenzren): test quantization
+        if cfg.get(
+            "use_torch_compile", False
+        ):  # model being compiled in the first batch wich takes some time
+            self.model = torch.compile(
+                self.model,
+                mode="default",  # "reduce-overhead", max-autotune(-no-cudagraphs)
+                # backend="cudagraphs", # inductor
+            )
+        # modes: https://pytorch.org/docs/main/generated/torch.compile.html
+        # backends: https://pytorch.org/docs/stable/torch.compiler.html
         self.model.eval()
         log.info(f"Using cuda device: {self.device}")
         log_allocated_gpu_memory(log, "loading model")
@@ -107,17 +111,31 @@ class EvalAgent:
         while 1:
             # infer action chunk
             inputs = self.env_adapter.preprocess(env, obs, instruction)
+            causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids = (
+                self.model.build_causal_mask_and_position_ids(
+                    inputs["attention_mask"], dtype=self.dtype
+                )
+            )
+            image_text_proprio_mask, action_mask = (
+                self.model.split_full_mask_into_submasks(causal_mask)
+            )
+            inputs = {
+                "input_ids": inputs["input_ids"],
+                "pixel_values": inputs["pixel_values"].to(self.dtype),
+                "image_text_proprio_mask": image_text_proprio_mask,
+                "action_mask": action_mask,
+                "vlm_position_ids": vlm_position_ids,
+                "proprio_position_ids": proprio_position_ids,
+                "action_position_ids": action_position_ids,
+                "proprios": inputs["proprios"].to(self.dtype),
+            }
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            # running amp and bf16 will lead to ~1e-3 difference in action inferred when using vs. not using KV Cache, if starting from the same initial noise.
-            # no difference when using float32, also slightly faster on L40
+            # using bf16 shows <1e-2 difference in action inferred when using vs. not using kv cache (infer_action_naive, needs to pass in full causal_mask instead), if starting from the same initial noise. no difference when using float32
             with torch.inference_mode():
-                if self.use_bf16:
-                    with torch.autocast("cuda", dtype=torch.bfloat16):
-                        actions = self.model.infer_action(**inputs)[0]
-                else:
-                    actions = self.model.infer_action(**inputs)[0]
-                # actions_naive = self.model.infer_action_naive(**inputs)[0]
-            env_actions = self.env_adapter.postprocess(actions.cpu().numpy())
+                actions = self.model(**inputs)
+                # actions_naive = self.model.infer_action_naive(**inputs_naive)
+                # print(torch.allclose(actions, actions_naive))
+            env_actions = self.env_adapter.postprocess(actions[0].float().cpu().numpy())
 
             # environment step
             for env_action in env_actions[: self.act_steps]:

@@ -144,7 +144,6 @@ class SiglipAttention(nn.Module):
         attn_weights = nn.functional.softmax(
             attn_weights, dim=-1, dtype=attn_weights.dtype
         )
-        # .type_as(query_states)
         # Apply dropout only during training
         attn_weights = nn.functional.dropout(
             attn_weights, p=self.dropout, training=self.training

@@ -11,12 +11,12 @@ from collections import deque
 import einops
 import numpy as np
 import torch
-import wandb
 from omegaconf import OmegaConf
 from PIL import Image
 from torch.utils.data import DataLoader
 from transformers import AutoTokenizer
 
+import wandb
 from src.agent.dataset import TorchRLDSInterleavedDataset
 from src.model.vla.pizero import PiZero
 from src.model.vla.processing import VLAProcessor
@@ -57,6 +57,24 @@ class TrainAgent:
                 )
         self.main_rank = not self.multi_gpu or global_rank == 0
 
+        # logging
+        self.use_wandb = cfg.get("wandb", False)
+        if self.use_wandb and self.main_rank:
+            wandb.init(
+                entity=cfg.wandb.entity,
+                project=cfg.wandb.project,
+                name=cfg.wandb.run,
+                config=OmegaConf.to_container(cfg, resolve=True),
+                id=self.wandb_id if hasattr(self, "wandb_id") else None,
+                resume="allow",  # not using resume_from
+            )
+        self.debug = cfg.get("debug", False)
+        self.save_model_freq = int(cfg.save_model_freq)
+        self.log_freq = cfg.log_freq
+        self.log_dir = cfg.log_dir
+        self.checkpoint_dir = os.path.join(self.log_dir, "checkpoint")
+        os.makedirs(self.checkpoint_dir, exist_ok=True)
+
         # training params
         self.n_updates = int(cfg.n_updates)
         self.max_grad_norm = cfg.max_grad_norm
@@ -69,6 +87,7 @@ class TrainAgent:
             log.warning(
                 "Quantizing VLM but not adding Lora weights, which means the VLM will be fully frozen!"
             )  # since the weights have requires_grad=False. However, we are not excluding the weights from the optimizer yet!
+        self.dtype = torch.bfloat16 if cfg.get("use_bf16", True) else torch.float32
         self.model = PiZero(cfg, use_ddp=self.multi_gpu)
         if cfg.resume_checkpoint_path:
             self.load_checkpoint(cfg.resume_checkpoint_path)
@@ -78,15 +97,18 @@ class TrainAgent:
         self.model.freeze_unused_weights()
         if cfg.lora:
             self.model.freeze_non_lora_weights_in_vlm()
-        self.dtype = torch.bfloat16 if cfg.get("use_bfloat16", True) else torch.float32
         self.model.to(self.dtype)
         self.model.to(self.device)
-        if cfg.get("use_torch_compile", False):
+        if cfg.get(
+            "use_torch_compile", False
+        ):  # model being compiled in the first batch wich takes some time
             self.model = torch.compile(
                 self.model,
-                mode="default",  # "reduce-overhead" speeds up a lot and reduces VRAM usage more, but causes nan loss on L40, maybe issue with cudagraphs; max-autotune(-no-cudagraphs) not working
+                mode="default",  # "reduce-overhead" speeds up a lot and reduces VRAM usage a lot more, but causes nan loss on L40, maybe issue with cudagraphs or 8-bit optimizer; max-autotune(-no-cudagraphs) not working
                 # backend="cudagraphs", # inductor
-            )  # https://pytorch.org/docs/main/generated/torch.compile.html
+            )
+        # modes: https://pytorch.org/docs/main/generated/torch.compile.html
+        # backends: https://pytorch.org/docs/stable/torch.compiler.html
         log.info(f"Using cuda device: {self.device}, dtype: {self.dtype}")
         if self.multi_gpu:
             log.info(
@@ -112,20 +134,7 @@ class TrainAgent:
             cfg.global_batch_size // cfg.per_device_batch_size // world_size
         )
 
-        # tokenizer --- assume paligemma for now
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            cfg.pretrained_model_path, padding_side="right"
-        )
-
-        # processor
-        self.processor = VLAProcessor(
-            self.tokenizer,
-            num_image_tokens=cfg.vision.config.num_image_tokens,
-            max_seq_len=cfg.max_seq_len,
-            tokenizer_padding=cfg.tokenizer_padding,
-        )
-
-        # dataloader --- use the same for all ranks, num_workers=0
+        # dataloader --- spawn one for each rank, num_workers=0
         self.train_dataloader = DataLoader(
             TorchRLDSInterleavedDataset(cfg.data.train, train=True).dataset,
             batch_size=cfg.per_device_batch_size,
@@ -222,6 +231,8 @@ class TrainAgent:
         if cfg.resume_checkpoint_path:
             self.load_optimizer(cfg.resume_checkpoint_path)
 
+        ########### Input processing ###########
+
         # flow matching timestep sampling
         self.flow_schedule = cfg.get("flow_schedule", "gamma")
         assert self.flow_schedule in [
@@ -235,23 +246,18 @@ class TrainAgent:
             self.gamma_alpha_dist = torch.distributions.Gamma(flow_gamma_alpha, 1)
             self.gamma_beta_dist = torch.distributions.Gamma(flow_gamma_beta, 1)
 
-        # logging
-        self.use_wandb = cfg.get("wandb", False)
-        if self.use_wandb and self.main_rank:
-            wandb.init(
-                entity=cfg.wandb.entity,
-                project=cfg.wandb.project,
-                name=cfg.wandb.run,
-                config=OmegaConf.to_container(cfg, resolve=True),
-                id=self.wandb_id if hasattr(self, "wandb_id") else None,
-                resume="allow",  # not using resume_from
-            )
-        self.debug = cfg.get("debug", False)
-        self.save_model_freq = int(cfg.save_model_freq)
-        self.log_freq = cfg.log_freq
-        self.log_dir = cfg.log_dir
-        self.checkpoint_dir = os.path.join(self.log_dir, "checkpoint")
-        os.makedirs(self.checkpoint_dir, exist_ok=True)
+        # tokenizer --- assume paligemma for now
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            cfg.pretrained_model_path, padding_side="right"
+        )
+
+        # processor
+        self.processor = VLAProcessor(
+            self.tokenizer,
+            num_image_tokens=cfg.vision.config.num_image_tokens,
+            max_seq_len=cfg.max_seq_len,
+            tokenizer_padding=cfg.tokenizer_padding,
+        )
 
     def sample_fm_time(self, bsz: int) -> torch.FloatTensor:
         if self.flow_schedule == "uniform":  # uniform between 0 and 1
@@ -277,7 +283,7 @@ class TrainAgent:
             import torch.distributed as dist
         self.model.train()
 
-        def preprocess_batch(batch, split_mask: bool):
+        def preprocess_batch(batch, split_mask: bool, sample_fm_time: bool):
             # TODO(allenzren): support multi-image / proprio history
             images = batch["observation"]["image_primary"]
             proprios = batch["observation"]["proprio"]
@@ -297,31 +303,29 @@ class TrainAgent:
                 )
             )
 
-            # sample flow matching timesteps
-            t = self.sample_fm_time(len(texts))
-
             inputs = {
-                "input_ids": model_inputs["input_ids"].to(self.device),
-                "pixel_values": model_inputs["pixel_values"]
-                .to(self.device)
-                .to(self.dtype),
-                "vlm_position_ids": vlm_position_ids.to(self.device),
-                "proprio_position_ids": proprio_position_ids.to(self.device),
-                "action_position_ids": action_position_ids.to(self.device),
-                "proprios": proprios.to(self.device).to(self.dtype),
-                "actions": actions.to(self.device).to(self.dtype),
-                "t": t.to(self.device).to(self.dtype),
+                "input_ids": model_inputs["input_ids"],
+                "pixel_values": model_inputs["pixel_values"].to(self.dtype),
+                "vlm_position_ids": vlm_position_ids,
+                "proprio_position_ids": proprio_position_ids,
+                "action_position_ids": action_position_ids,
+                "proprios": proprios.to(self.dtype),
+                "actions": actions.to(self.dtype),
             }
             if split_mask:
                 image_text_proprio_mask, action_mask = (
                     self.model.split_full_mask_into_submasks(causal_mask)
                 )
-                inputs["image_text_proprio_mask"] = image_text_proprio_mask.to(
-                    self.device
-                )
-                inputs["action_mask"] = action_mask.to(self.device)
+                inputs["image_text_proprio_mask"] = image_text_proprio_mask
+                inputs["action_mask"] = action_mask
             else:
-                inputs["causal_mask"] = causal_mask.to(self.device)
+                inputs["causal_mask"] = causal_mask
+
+            # sample flow matching timesteps
+            if sample_fm_time:
+                inputs["t"] = self.sample_fm_time(len(texts)).to(self.dtype)
+
+            inputs = {k: v.to(self.device) for k, v in inputs.items()}
             return inputs
 
         while 1:
@@ -333,7 +337,7 @@ class TrainAgent:
                 action (torch.Size([bsz, window, horizon, action_dim], float32)
                 action_pad_mask (torch.Size([bsz, window, horizon, action_dim]))
                 """
-                inputs = preprocess_batch(batch, split_mask=False)
+                inputs = preprocess_batch(batch, split_mask=False, sample_fm_time=True)
                 if self.debug and cnt_batch == 0:
                     images = batch["observation"]["image_primary"]
                     proprios = batch["observation"]["proprio"]
@@ -420,7 +424,9 @@ class TrainAgent:
                     with torch.no_grad():
                         for _ in range(self.per_device_num_eval_batch):
                             batch_eval = next(self.val_dataiterator)
-                            inputs = preprocess_batch(batch_eval, split_mask=True)
+                            inputs = preprocess_batch(
+                                batch_eval, split_mask=True, sample_fm_time=False
+                            )
                             gt_actions = inputs.pop("actions")
                             if self.multi_gpu:
                                 preds = self.model.module.infer_action(**inputs)
@@ -455,7 +461,8 @@ class TrainAgent:
                 # log loss
                 if self.main_rank and cnt_batch % self.log_freq == 0:
                     loss_train_metric = np.mean(loss_train_deque)
-                    log_msg = f"Batch {cnt_batch} Update {cnt_update}: t {timer():8.4f} | train loss {loss_train_metric:6.4f} | action lr {self.action_optimizer.param_groups[0]['lr']:10.8f}"
+                    peak_vram = torch.cuda.max_memory_reserved(self.gpu_id) / (1024**3)
+                    log_msg = f"Batch {cnt_batch} Update {cnt_update}: t {timer():8.4f} | vram {peak_vram:6.3f} | train loss {loss_train_metric:6.4f} | action lr {self.action_optimizer.param_groups[0]['lr']:10.8f}"
                     if self.train_vlm:
                         log_msg += f" | vlm lr {self.vlm_optimizer.param_groups[0]['lr']:10.8f}"
                     log.info(log_msg)
@@ -510,7 +517,8 @@ class TrainAgent:
         }
         savepath = os.path.join(self.checkpoint_dir, f"ckpt_{cnt_update}.pt")
         torch.save(data, savepath)
-        log.info(f"Saved model to {savepath}")
+        checkpoint_size_in_gb = os.path.getsize(savepath) / (1024**3)
+        log.info(f"Saved model to {savepath}, size: {checkpoint_size_in_gb:.3f} GB")
 
     @log_execution_time()
     def load_checkpoint(self, path):

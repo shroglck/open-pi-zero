@@ -16,7 +16,7 @@ resume_checkpoint_path:
 train_vlm: True
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 use_torch_compile: True
-use_bfloat16: True
+use_bf16: True
 offload_optimizer: False
 quantize: False
 lora: False

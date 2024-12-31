@@ -32,6 +32,8 @@ for TASK in ${TASKS[@]}; do
         env.task=$TASK \
         horizon_steps=4 \
         act_steps=2 \
+        use_bf16=False \
+        use_torch_compile=False \
         name=2024-12-26_15-35_42-ckpt_23584 \
         'checkpoint_path="results/train/paligemma_bridge_train_tp4_gamma/2024-12-26_15-35_42/checkpoint/ckpt_23584.pt"'
 done

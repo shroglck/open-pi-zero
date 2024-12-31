@@ -46,5 +46,8 @@ NCCL_SOCKET_IFNAME=ens27f0 srun uv run torchrun \
   scripts/run.py \
   --config-name=bridge \
   n_nodes=$SLURM_JOB_NUM_NODES \
+  action_lr=0.00005 \
+  vlm_lr=0.00005 \
+  flow_schedule=gamma \
   use_torch_compile=True \
-  use_bfloat16=True
+  use_bf16=True

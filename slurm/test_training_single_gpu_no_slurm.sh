@@ -1,7 +1,12 @@
 #!/bin/bash
 
-# no wandb logging, logging GPU memory usage
-# smaller global batch size, small resource for dataloading
+# no wandb logging
+# logging GPU memory usage
+# smaller global batch size
+# small resource for dataloading
+# try saving model
+
+# first batch will take a while with torch.compile as model being compiled
 CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
     scripts/run.py \
     --config-name=bridge \
@@ -11,10 +16,11 @@ CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
     log_dir=results/test/ \
     global_batch_size=32 \
     per_device_batch_size=16 \
-    flow_schedule=uniform \
+    flow_schedule=gamma \
     data.train.shuffle_buffer_size=10000 \
     data.train.num_parallel_calls=10 \
-    eval_freq=20 \
-    eval_size=32 \
-    use_torch_compile=True \
-    use_bfloat16=True
+    eval_freq=50 \
+    eval_size=64 \
+    save_model_freq=100 \
+    use_torch_compile=False \
+    use_bf16=True

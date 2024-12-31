@@ -9,7 +9,7 @@ import simpler_env
 import torch
 from omegaconf import OmegaConf
 
-from src.model.vla.pizero import PiZero
+from src.model.vla.pizero import PiZeroInference
 from src.utils.monitor import log_allocated_gpu_memory, log_execution_time
 
 
@@ -23,18 +23,14 @@ def load_checkpoint(model, path):
 
 def main(args):
     # seeding
-    seed = 42
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-
-    # disable torch compile
-    os.environ["DISABLE_TORCH_COMPILE"] = "1"
+    random.seed(args.seed)
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
 
     # devices
     device = torch.device(f"cuda:{args.gpu_id}")
 
-    # load corresponding config
+    # load default configs
     if "fractal" in args.checkpoint_path:
         cfg = OmegaConf.load(
             "config/eval/fractal_apple.yaml"
@@ -48,13 +44,29 @@ def main(args):
     if "gamma" in args.checkpoint_path:
         cfg.flow_schedule = "gamma"
 
+    # didn't see a difference in inference speed with L40
+    # torch.set_float32_matmul_precision("medium")  # highest, high
+    # torch.backends.cudnn.benchmark = True # for vit conv layers
+
     # model
-    model = PiZero(cfg, use_ddp=False)
+    dtype = torch.bfloat16 if args.use_bf16 else torch.float32
+    model = PiZeroInference(cfg, use_ddp=False)
     load_checkpoint(model, args.checkpoint_path)
     model.freeze_all_weights()
+    model.to(dtype)
     model.to(device)
+    if (
+        args.use_torch_compile
+    ):  # model being compiled in the first batch wich takes some time
+        model = torch.compile(
+            model,
+            mode="default",  # "reduce-overhead; max-autotune(-no-cudagraphs)
+            # backend="cudagraphs", # inductor
+        )
+    # modes: https://pytorch.org/docs/main/generated/torch.compile.html
+    # backends: https://pytorch.org/docs/stable/torch.compiler.html
     model.eval()
-    print(f"Using cuda device: {device}")
+    print(f"Using cuda device: {device} dtype: {dtype}")
     log_allocated_gpu_memory(None, "loading model", args.gpu_id)
 
     # simpler env
@@ -65,13 +77,18 @@ def main(args):
     env_adapter.reset()
 
     # run an episode
-    obs, reset_info = env.reset(options={"episode_id": 0})
+    episode_id = random.randint(0, 20)
+    env_reset_options = {}
+    env_reset_options["obj_init_options"] = {
+        "episode_id": episode_id,  # this determines the obj inits in bridge
+    }
+    obs, reset_info = env.reset(options=env_reset_options)
     instruction = env.get_language_instruction()
     if args.recording:
         os.environ["TOKENIZERS_PARALLELISM"] = (
             "false"  # avoid tokenizer forking warning about deadlock
         )
-        video_writer = imageio.get_writer(f"try_{args.task}.mp4")
+        video_writer = imageio.get_writer(f"try_{args.task}_{episode_id}.mp4")
     print(
         f"Reset info: {reset_info} Instruction: {instruction} Max episode length: {env.spec.max_episode_steps}"
     )
@@ -80,13 +97,31 @@ def main(args):
     while 1:
         # infer action chunk
         inputs = env_adapter.preprocess(env, obs, instruction)
+        causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids = (
+            model.build_causal_mask_and_position_ids(
+                inputs["attention_mask"], dtype=dtype
+            )
+        )
+        image_text_proprio_mask, action_mask = model.split_full_mask_into_submasks(
+            causal_mask
+        )
+        inputs = {
+            "input_ids": inputs["input_ids"],
+            "pixel_values": inputs["pixel_values"].to(dtype),
+            "image_text_proprio_mask": image_text_proprio_mask,
+            "action_mask": action_mask,
+            "vlm_position_ids": vlm_position_ids,
+            "proprio_position_ids": proprio_position_ids,
+            "action_position_ids": action_position_ids,
+            "proprios": inputs["proprios"].to(dtype),
+        }
         inputs = {k: v.to(device) for k, v in inputs.items()}
         start_inference_time = time.time()
-        with torch.inference_mode():
-            actions = model.infer_action(**inputs)[0]
+        with torch.inference_mode():  # speeds up
+            actions = model(**inputs)
         if cnt_step > 0:
             inference_times.append(time.time() - start_inference_time)
-        env_actions = env_adapter.postprocess(actions.cpu().numpy())
+        env_actions = env_adapter.postprocess(actions[0].float().cpu().numpy())
 
         # environment step
         for env_action in env_actions[: cfg.act_steps]:
@@ -123,7 +158,7 @@ def main(args):
     print(f"Total environment steps: {cnt_step}")
     print(f"Success: {success}")
     if args.recording:
-        print(f"Video saved as try_{args.task}.mp4")
+        print(f"Video saved as try_{args.task}_{episode_id}.mp4")
     print("======================================\n\n")
 
 
@@ -151,6 +186,9 @@ if __name__ == "__main__":
     )
     parser.add_argument("--checkpoint_path", type=str)
     parser.add_argument("--gpu_id", type=int, default=0)
+    parser.add_argument("--seed", type=int, default=42)
+    parser.add_argument("--use_bf16", action="store_true")
+    parser.add_argument("--use_torch_compile", action="store_true")
     parser.add_argument("--recording", action="store_true")
     args = parser.parse_args()
 

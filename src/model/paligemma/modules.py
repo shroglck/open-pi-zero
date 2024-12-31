@@ -16,12 +16,19 @@ class GemmaRMSNorm(nn.Module):
     def forward(self, x):
         output = self._norm(x)
         # Llama does x.to(float16) * w whilst Gemma is (x * w).to(float16)
-        # See https://github.com/huggingface/transformers/pull/29402
+        # https://github.com/huggingface/transformers/pull/29402
         output = output * (1.0 + self.weight)
-        return output.type_as(x)
+        return output
 
 
 class GemmaRotaryEmbedding(nn.Module):
+    """
+    allenzren: original implementation forces RoPE to use float32 for full accuracy. here we allow bf16
+
+    https://github.com/huggingface/transformers/pull/29402
+    https://github.com/huggingface/transformers/pull/29285
+    """
+
     def __init__(self, dim, max_position_embeddings=2048, base=10000):
         super().__init__()
 

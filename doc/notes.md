@@ -8,6 +8,8 @@ Overall, Gamma sampling in flow matching timesteps achieved better validation lo
 
 I was able to train with learning rate as high as 3e-4, thanks to the stability of the flow matching / diffusion objective?
 
+I tried training with batch size from 256 to 2048, and the training curves (wall-clock time vs. training loss) were similar.
+
 I switched to using [-1, 1] normalization from unit Gaussian used in Octo because I find the bridge dataset has some weird, very large action values (e.g., 80). Without clipping after being normalized with unit std, it causes a lot of spikes in training loss.
 
 Not using pre-trained PaliGemma weights trained much worse. Training the action expert only (freezing PaliGemma) did not work at all.

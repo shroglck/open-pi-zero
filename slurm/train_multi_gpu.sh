@@ -36,4 +36,4 @@ HYDRA_FULL_ERROR=1 uv run torchrun \
   vlm_lr=0.00005 \
   flow_schedule=gamma \
   use_torch_compile=True \
-  use_bfloat16=True
+  use_bf16=True

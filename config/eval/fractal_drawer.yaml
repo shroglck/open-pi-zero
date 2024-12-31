@@ -45,6 +45,8 @@ env:
 flow_schedule: gamma
 num_inference_steps: 10
 final_action_clip_value: 1.0  # data normalized in [-1,1]
+use_torch_compile: False
+use_bf16: False
 
 cond_steps: 1
 horizon_steps: 4

@@ -4,7 +4,7 @@ This repo implements the [pi0](https://www.physicalintelligence.company/download
 
 The model adopts a MoE-like architecture (or the recent [MoT](https://arxiv.org/abs/2411.04996), each expert has its own set of parameters and only interacts through attention), and uses a pre-trained 3B PaliGemma VLM (2.291B to be fine-tuned) and a new set of action expert parameters (0.315B). Block-wise causal masking is used such that VLM block attends to itself, proprioception (sharing weights with action) attends to itself and VLM, and action attends to all; each block is fully bidirectional within. The model is trained with flow matching loss on the action chunk output from the action expert.
 
-If you find a bug or think I may have misunderstood part of the architecture based on the paper, please raise an issue or email me.
+If you find a bug or think I may have misunderstood part of the architecture based on the paper, please raise an issue or email me. Much appreciated.
 
 ## Installation
 Clone this repository at your directory. If running [Simpler eval](https://github.com/simpler-env/SimplerEnv) or trying out trained checkpoints, clone my [fork](https://github.com/allenzren/SimplerEnv) (addded proprio support) to the same directory
@@ -32,6 +32,8 @@ git clone https://huggingface.co/google/paligemma-3b-pt-224
 uv run src/model/vla/pizero.py --text_only --load_pretrained_weights
 ```
 
+Note: Current implementation will be fully bfloat16 if `--use_bf16` is set. PaliGemma may lose accuracy [issue](https://github.com/huggingface/transformers/pull/29402) but I assume it is okay if being used as the VLA backbone.
+
 <!-- VLA with dummy img/text, proprio, and action, output dummy flow matching action
 ```console
 uv run src/model/vla/pizero.py
@@ -49,17 +51,15 @@ Run an trial in Simpler after downloading a checkpoint (see the list of tasks in
 uv run scripts/try_checkpoint_in_simpler.py \
     --task google_robot_pick_horizontal_coke_can \
     --checkpoint_path ...fractal_gamma.pt \
-    --recording
+    --recording \
+    --use_bf16 \
+    --use_torch_compile # first batch will be slow
 ```
-This roughtly takes 13.5GB of VRAM (float32).
-
-### Training details
-
-The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per GPU batch size 16 and thus gradient accumulation step 8), or 12 hours with H100s. torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage. Action and propriocetion data were normalized in [-1, 1].
+This should use about 13GB VRAM with float32 or 7GB with bfloat16.
 
 ### Inference speed
 
-Inference involves one forward pass through PaliGemma (saving KV cache), and then 10 flow matching steps through the action expert. With RTX 4090 and float32, inference takes 230ms, which is much worse than the 73ms from the Pi0 paper (see their Table I). The main difference lies in the 10 steps through the action expert: while Pi's implementation takes only 27ms for 10 steps, mine takes 17ms per step. Flash/FlexAttention etc. might help.
+Inference involves one forward pass through PaliGemma (saving KV cache), and then 10 flow matching steps through the action expert. With RTX 4090 and float32, inference takes 230ms. Then with torch.compile, it reduces to ??? 73ms from the Pi0 paper (see their Table I). Using Flash/FlexAttention might further reduce inference time.
 
 ### Eval results
 
@@ -78,7 +78,13 @@ Success rates in **visual matching** setting in Simpler with float32 (results in
 | [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | 91.7% | 73.8% | 79.6% | 48.1% | 64.8% |
 | [Fractal-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_gamma.pt)    | 96.7% | 85.0% | 74.1% | 47.2% | 12.0% |
 
-Disclaimer: please do not associate my results with possible results from Pi.
+Disclaimer: Please do not associate my results with possible results from Pi.
+
+### Training details
+
+The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per-GPU bsz 16 and thus gradient accumulation step 8), or 12 hours with H100s (bsz 32). torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage (peak 32GB). Action and propriocetion data were normalized in [-1, 1].
+
+Training may be faster now with some new optimization, possibly with bigger per-GPU bsz.
 
 ## Run training
 
@@ -93,7 +99,7 @@ Download bridge data from [RAIL link](https://rail.eecs.berkeley.edu/datasets/br
 
 ### Data pre-processing
 
-Run (with enough RAM) [slurm/modify_rlds.sh](slurm/modify_rlds.sh), which resizes the images to 224x224 for PaliGemma. Save it at `$VLA_DATA_DIR/resize_224\`.
+Run (with enough RAM) [slurm/modify_rlds.sh](slurm/modify_rlds.sh), which resizes the images to 224x224 for PaliGemma. Data shall be saved at `$VLA_DATA_DIR/resize_224`.
 
 [Possible error](doc/error.md#5) | [Conventions on proprio / gripper actions](doc/convention.md)
 
@@ -108,6 +114,10 @@ See examples in the [slurm](slurm/) folder. TFDS dataloading takes a growing amo
 ### Simpler
 
 See examples in the [slurm](slurm/) folder. Currently they use the dataset statistics generated by my training; you may update `env.adapter.dataset_statistics_path` in the config to the dataset statistics json file generated in your training, located in the dataset folder.
+
+## File structure / naming
+
+...
 
 ## Things to implement / try
 
