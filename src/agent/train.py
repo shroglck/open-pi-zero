@@ -240,11 +240,10 @@ class TrainAgent:
             "gamma",
         ], f"Invalid flow matching timestep sampling schedule: {self.flow_schedule}"
         if self.flow_schedule == "gamma":
-            flow_gamma_alpha = cfg.get("flow_gamma_alpha", 1.5)
-            flow_gamma_beta = cfg.get("flow_gamma_beta", 1)
-            self.flow_gamma_max = 1 - cfg.get("flow_sig_min", 0.001)
-            self.gamma_alpha_dist = torch.distributions.Gamma(flow_gamma_alpha, 1)
-            self.gamma_beta_dist = torch.distributions.Gamma(flow_gamma_beta, 1)
+            flow_alpha = cfg.get("flow_alpha", 1.5)
+            flow_beta = cfg.get("flow_beta", 1)
+            self.flow_t_max = 1 - cfg.get("flow_sig_min", 0.001)
+            self.flow_beta_dist = torch.distributions.Beta(flow_alpha, flow_beta)
 
         # tokenizer --- assume paligemma for now
         self.tokenizer = AutoTokenizer.from_pretrained(
@@ -265,10 +264,8 @@ class TrainAgent:
             eps = 1e-5
             t = (torch.rand(1) + torch.arange(bsz) / bsz) % (1 - eps)
         elif self.flow_schedule == "gamma":  # from pi0 paper
-            x = self.gamma_alpha_dist.sample((bsz,))
-            y = self.gamma_beta_dist.sample((bsz,))
-            z = x / (x + y)
-            t = self.flow_gamma_max * (1 - z)
+            z = self.flow_beta_dist.sample((bsz,))
+            t = self.flow_t_max * (1 - z)  # flip and shift
         return t
 
     def run(self):
