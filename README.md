@@ -42,15 +42,15 @@ uv run src/model/vla/pizero.py
 ## Try checkpoints
 
 I have only trained with either fractal or bridge dataset so far (training with mixed OXE data soon). Links to the models:
- [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform.pt) | [Bridge-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_gamma.pt) | [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | [Fractal-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_gamma.pt)
+ [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform.pt) | [Bridge-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_beta.pt) | [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta.pt)
 
-Uniform and Gamma stands for the schedule for sampling flow matching timesteps during training: Uniform samples uniformly between 0 and 1, and Gamma, proposed by Pi0, samples with higher density at earlier timesteps.
+Uniform and Beta stands for the schedule for sampling flow matching timesteps during training: Uniform samples uniformly between 0 and 1, and Beta, proposed by Pi0, samples with higher density at earlier timesteps.
 
 Run an trial in Simpler after downloading a checkpoint (see the list of tasks in the script)
 ```console
 uv run scripts/try_checkpoint_in_simpler.py \
     --task google_robot_pick_horizontal_coke_can \
-    --checkpoint_path ...fractal_gamma.pt \
+    --checkpoint_path ...fractal_beta.pt \
     --recording \
     --use_bf16 \
     --use_torch_compile # first batch will be slow
@@ -66,11 +66,11 @@ Inference involves one forward pass through PaliGemma (saving KV cache), and the
 | bf16 | 232ms | 6.7GB |
 | float32 + torch.compile | 91ms | 14.0GB |
 | bf16 + torch.compile | 72ms | 6.7GB |
-| Pi0 paper (Table I)* | 73ms | - |
+| Pi0 paper | 73ms* | - |
 
 torch.compile mode is set to `default`. I also tried to use torch_tensorrt but compilation fails silently right now.
 
-*My numbers are with single image input and action chunk size 4, while Pi uses three images and chunk size 50 according to the paper appendix.
+*From Table I of the paper. Note that my numbers are with single image input and action chunk size 4, while Pi uses three images and chunk size 50 according to the paper appendix.
 
 ### Eval results
 
@@ -82,12 +82,12 @@ Success rates in **visual matching** setting in Simpler with float32 (results in
 | Policy | Carrot on plate | Eggplant in basket | Spoon on towel | Stack cube |
 |:------:|:---------------:|:------------------:|:--------------:|:----------:|
 | [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform.pt)   | 65.3% | 86.1% | 90.3% | 18.1% |
-| [Bridge-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_gamma.pt)    | 55.6% | 86.1% | 91.7% | 54.2% |
+| [Bridge-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_beta.pt)    | 55.6% | 86.1% | 91.7% | 54.2% |
 
 | Policy | Pick up Coke | Move Near | Close Drawer | Open Drawer | Open Top Drawer and Put Apple In |
 |:------:|:------------:|:---------:|:------------:|:-----------:|:--------------------------------:|
 | [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | 91.7% | 73.8% | 79.6% | 48.1% | 64.8% |
-| [Fractal-Gamma](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_gamma.pt)    | 96.7% | 85.0% | 74.1% | 47.2% | 12.0% |
+| [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta.pt)    | 96.7% | 85.0% | 74.1% | 47.2% | 12.0% |
 
 Disclaimer: Please do not associate my results with possible results from Pi.
 
@@ -134,19 +134,19 @@ src
  │     ├── train.py             # training workspace
  │     ├── eval.py              # eval workspace (with Simpler)
  │     └── env_adapter
- │         ├── base.py
- │         └── simpler.py       # env obs pre-process and action post-process
- ├── data                       # training data pre-process, mostly from Octo and dlimp
+ │          ├── base.py
+ │          └── simpler.py      # env obs pre-processing and action post-processing
+ ├── data                       # training data pre-processing, mostly from Octo and dlimp
  └── model
        ├── paligemma            # mostly from open-source paligemma
        │    ├── siglip.py       # SigLIP and projector
        │    └── modules.py      # RoPE, MLP, RMSNorm
        └── vla
-            ├── pizero.py       # PiZero model
-            ├── joint_model.py  # Mixture of Experts. Run each expert and global attn
-            ├── mixture.py      # Individual `expert` following PaliGemma layout
-            ├── modules.py      # Encoder, adaLN(-Zero), time embedding
-            └── processing.py   # PaliGemma tokenization, image normalization
+            ├── pizero.py       # PiZero: `joint_model` (Gemma and action expert), SigLIP, en/decoders
+            ├── joint_model.py  # mixture of experts, run each expert and global attention
+            ├── mixture.py      # individual `expert` following PaliGemma layout
+            ├── modules.py      # action encoder, time embedding
+            └── processing.py   # text tokenization and image normalization for PaliGemma
 ```
 
 ## Things to implement / try

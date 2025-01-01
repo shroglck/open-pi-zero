@@ -41,8 +41,8 @@ def main(args):
     # determine flow matching schedule
     if "uniform" in args.checkpoint_path:
         cfg.flow_schedule = "uniform"
-    if "gamma" in args.checkpoint_path:
-        cfg.flow_schedule = "gamma"
+    if "beta" in args.checkpoint_path:
+        cfg.flow_schedule = "beta"
 
     # model
     dtype = torch.bfloat16 if args.use_bf16 else torch.float32
@@ -53,7 +53,7 @@ def main(args):
     model.to(device)
     if (
         args.use_torch_compile
-    ):  # model being compiled in the first batch wich takes some time
+    ):  # model being compiled in the first batch which takes some time
         model = torch.compile(
             model,
             mode="default",  # "reduce-overhead; max-autotune(-no-cudagraphs)

@@ -42,12 +42,13 @@ NCCL_SOCKET_IFNAME=ens27f0 srun uv run torchrun \
   --nproc_per_node=8 \
   --rdzv_id $RANDOM \
   --rdzv_backend c10d \
+  --max-restarts=3 \
   --rdzv_endpoint $head_node_ip:$MASTER_PORT \
   scripts/run.py \
   --config-name=bridge \
   n_nodes=$SLURM_JOB_NUM_NODES \
   action_lr=0.00005 \
   vlm_lr=0.00005 \
-  flow_schedule=gamma \
+  flow_schedule=beta \
   use_torch_compile=True \
   use_bf16=True

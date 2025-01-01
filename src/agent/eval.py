@@ -46,7 +46,7 @@ class EvalAgent:
         self.model.to(self.device)  # TODO(allenzren): test quantization
         if cfg.get(
             "use_torch_compile", False
-        ):  # model being compiled in the first batch wich takes some time
+        ):  # model being compiled in the first batch which takes some time
             self.model = torch.compile(
                 self.model,
                 mode="default",  # "reduce-overhead", max-autotune(-no-cudagraphs)

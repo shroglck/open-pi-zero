@@ -1,5 +1,5 @@
 """
-Main training agent. Using torch.compile and bfloat16 by default. Optionally CPU offloading and (Q)LoRA. Not using AMP.
+Main training agent. Using torch.compile and bfloat16 by default. Optionally (Q)LoRA. Not using AMP.
 
 """
 
@@ -8,6 +8,7 @@ import os
 import random
 from collections import deque
 
+import bitsandbytes as bnb
 import einops
 import numpy as np
 import torch
@@ -101,7 +102,7 @@ class TrainAgent:
         self.model.to(self.device)
         if cfg.get(
             "use_torch_compile", False
-        ):  # model being compiled in the first batch wich takes some time
+        ):  # model being compiled in the first batch which takes some time
             self.model = torch.compile(
                 self.model,
                 mode="default",  # "reduce-overhead" speeds up a lot and reduces VRAM usage a lot more, but causes nan loss on L40, maybe issue with cudagraphs or 8-bit optimizer; max-autotune(-no-cudagraphs) not working
@@ -164,25 +165,11 @@ class TrainAgent:
         # rest: 2.291B (0.109B with lora rank 64, 0.055B with rank 32)
         self.train_vlm = cfg.train_vlm
         self.trained_parameters = model.action_expert_parameters
-        if cfg.offload_optimizer:
-            from torchao.prototype.low_bit_optim import CPUOffloadOptimizer
-
-            self.action_optimizer = CPUOffloadOptimizer(
-                model.action_expert_parameters,
-                torch.optim.AdamW,  # no need to use low-bit optimizer
-                fused=True,
-                offload_gradients=False,  # does not work with grad accumulation
-                lr=cfg.action_lr,
-                weight_decay=cfg.action_weight_decay,
-            )
-        else:
-            import bitsandbytes as bnb
-
-            self.action_optimizer = bnb.optim.AdamW8bit(
-                model.action_expert_parameters,
-                lr=cfg.action_lr,
-                weight_decay=cfg.action_weight_decay,
-            )
+        self.action_optimizer = bnb.optim.AdamW8bit(
+            model.action_expert_parameters,
+            lr=cfg.action_lr,
+            weight_decay=cfg.action_weight_decay,
+        )
         self.action_lr_scheduler = CosineAnnealingWarmupRestarts(
             self.action_optimizer,
             first_cycle_steps=cfg.action_lr_scheduler.first_cycle_steps,
@@ -201,21 +188,11 @@ class TrainAgent:
             else:
                 vlm_trained_parameters = model.trainable_vlm_parameters
             self.trained_parameters += vlm_trained_parameters
-            if cfg.offload_optimizer:
-                self.vlm_optimizer = CPUOffloadOptimizer(
-                    vlm_trained_parameters,
-                    torch.optim.AdamW,
-                    fused=True,
-                    offload_gradients=False,
-                    lr=cfg.vlm_lr,
-                    weight_decay=cfg.vlm_weight_decay,
-                )
-            else:
-                self.vlm_optimizer = bnb.optim.AdamW8bit(
-                    vlm_trained_parameters,
-                    lr=cfg.vlm_lr,
-                    weight_decay=cfg.vlm_weight_decay,
-                )
+            self.vlm_optimizer = bnb.optim.AdamW8bit(
+                vlm_trained_parameters,
+                lr=cfg.vlm_lr,
+                weight_decay=cfg.vlm_weight_decay,
+            )
             self.vlm_lr_scheduler = CosineAnnealingWarmupRestarts(
                 self.vlm_optimizer,
                 first_cycle_steps=cfg.vlm_lr_scheduler.first_cycle_steps,
@@ -234,23 +211,21 @@ class TrainAgent:
         ########### Input processing ###########
 
         # flow matching timestep sampling
-        self.flow_schedule = cfg.get("flow_schedule", "gamma")
+        self.flow_schedule = cfg.get("flow_schedule", "beta")
         assert self.flow_schedule in [
             "uniform",
-            "gamma",
+            "beta",
         ], f"Invalid flow matching timestep sampling schedule: {self.flow_schedule}"
-        if self.flow_schedule == "gamma":
+        if self.flow_schedule == "beta":
             flow_alpha = cfg.get("flow_alpha", 1.5)
             flow_beta = cfg.get("flow_beta", 1)
             self.flow_t_max = 1 - cfg.get("flow_sig_min", 0.001)
             self.flow_beta_dist = torch.distributions.Beta(flow_alpha, flow_beta)
 
-        # tokenizer --- assume paligemma for now
+        # processor --- assume paligemma for now
         self.tokenizer = AutoTokenizer.from_pretrained(
             cfg.pretrained_model_path, padding_side="right"
         )
-
-        # processor
         self.processor = VLAProcessor(
             self.tokenizer,
             num_image_tokens=cfg.vision.config.num_image_tokens,
@@ -263,7 +238,7 @@ class TrainAgent:
             """https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb"""
             eps = 1e-5
             t = (torch.rand(1) + torch.arange(bsz) / bsz) % (1 - eps)
-        elif self.flow_schedule == "gamma":  # from pi0 paper
+        elif self.flow_schedule == "beta":  # from pi0 paper
             z = self.flow_beta_dist.sample((bsz,))
             t = self.flow_t_max * (1 - z)  # flip and shift
         return t
@@ -278,6 +253,10 @@ class TrainAgent:
         new_eval_from_last_log = False
         if self.multi_gpu:
             import torch.distributed as dist
+
+            model = self.model.module
+        else:
+            model = self.model
         self.model.train()
 
         def preprocess_batch(batch, split_mask: bool, sample_fm_time: bool):
@@ -295,7 +274,7 @@ class TrainAgent:
 
             # build causal mask and position ids for action
             causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids = (
-                self.model.build_causal_mask_and_position_ids(
+                model.build_causal_mask_and_position_ids(
                     model_inputs["attention_mask"], self.dtype
                 )
             )
@@ -311,7 +290,7 @@ class TrainAgent:
             }
             if split_mask:
                 image_text_proprio_mask, action_mask = (
-                    self.model.split_full_mask_into_submasks(causal_mask)
+                    model.split_full_mask_into_submasks(causal_mask)
                 )
                 inputs["image_text_proprio_mask"] = image_text_proprio_mask
                 inputs["action_mask"] = action_mask
@@ -377,7 +356,7 @@ class TrainAgent:
                     torch.nn.utils.clip_grad_norm_(
                         self.trained_parameters,
                         max_norm=self.max_grad_norm,
-                    )  # TODO(allenzren): conflict with offloading?
+                    )
                     self.action_optimizer.step()
                     self.action_lr_scheduler.step()
                     if self.train_vlm:
@@ -425,10 +404,7 @@ class TrainAgent:
                                 batch_eval, split_mask=True, sample_fm_time=False
                             )
                             gt_actions = inputs.pop("actions")
-                            if self.multi_gpu:
-                                preds = self.model.module.infer_action(**inputs)
-                            else:
-                                preds = self.model.infer_action(**inputs)
+                            preds = model.infer_action(**inputs)
                             eval_accuracy += get_action_accuracy(
                                 gt_actions, preds, self.eval_thresholds
                             )
