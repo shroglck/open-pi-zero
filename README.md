@@ -93,9 +93,9 @@ Disclaimer: Please do not associate my results with possible results from Pi.
 
 ### Training details
 
-The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per-GPU bsz 16 and thus gradient accumulation step 8), or 12 hours with H100s (bsz 32). torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage (peak 32GB with bsz 16). Action and propriocetion data were normalized in [-1, 1].
+The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per-GPU bsz 16 and thus gradient accumulation step 8), or 12 hours with H100s (bsz 32). torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage (peak 32GB with bsz 16). Action and proprioception data were normalized in [-1, 1].
 
-Training may be faster now with some new optimization, possibly with bigger per-GPU bsz.
+Training may be faster now with some new optimization, possibly with bigger per-GPU batch size too.
 
 ## Run training
 
@@ -116,7 +116,7 @@ Run (with enough RAM) [slurm/modify_rlds.sh](slurm/modify_rlds.sh), which resize
 
 ### Training scripts
 
-See examples in the [slurm](slurm/) folder. TFDS dataloading takes a growing amount of CPU RAM and roughly peaks at about 300-400GB with one dataloader in each DDP process.
+See examples in the [slurm](slurm/) folder. TFDS dataloading takes a growing amount of CPU RAM and roughly peaks at about 300-400GB in a node as each DDP process spawns a dataloader.
 
 [Discussion on RAM](https://github.com/openvla/openvla/issues/4) | [Possible error if running quantization](doc/error.md#9) | [My observations / lessons from training](doc/notes.md)
 

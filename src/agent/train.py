@@ -101,7 +101,7 @@ class TrainAgent:
         self.model.to(self.dtype)
         self.model.to(self.device)
         if cfg.get(
-            "use_torch_compile", False
+            "use_torch_compile", True
         ):  # model being compiled in the first batch which takes some time
             self.model = torch.compile(
                 self.model,
