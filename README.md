@@ -86,14 +86,14 @@ Success rates in **visual matching** setting in Simpler with float32 (results in
 
 | Policy | Pick up Coke | Move Near | Close Drawer | Open Drawer | Open Top Drawer<br/> and Put Apple In |
 |:------:|:------------:|:---------:|:------------:|:-----------:|:--------------------------------:|
-| [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | 91.7% | 73.8% | 79.6% | 48.1% | 64.8% |
-| [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta.pt)    | 96.7% | 85.0% | 74.1% | 47.2% | 12.0% |
+| [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | 86.0% | 80.4% | 72.2% | 47.2% | 51.9% |
+| [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta.pt)    | 97.7% | 75.0% | 78.7% | 64.8% | 46.3% |
 
 Disclaimer: Please do not associate my results with possible results from Pi.
 
 ### Training details
 
-The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps (not fully converged based on validation action accuracy). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2 days on one L40 node (per-GPU bsz 16 and thus gradient accumulation step 8), or 12 hours with H100s (bsz 32). torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage (peak 32GB with bsz 16). Action and proprioception data were normalized in [-1, 1].
+The models were trained with learning rate 5e-5, global batch size 1024, and roughly 22k gradient steps with bridge (~10 epochs) and 30k with fractal (~8 epochs). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2-3 days on one L40 node (per-GPU bsz 16 and thus gradient accumulation step 8), or 12-18 hours with H100s (bsz 32). torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage (peak 32GB with bsz 16). Action and proprioception data were normalized in [-1, 1].
 
 Training may be faster now with some new optimization, possibly with bigger per-GPU batch size too.
 
