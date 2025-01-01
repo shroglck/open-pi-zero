@@ -17,6 +17,8 @@ from src.utils.monitor import log_allocated_gpu_memory, log_execution_time
 def load_checkpoint(model, path):
     """load to cpu first, then move to gpu"""
     data = torch.load(path, weights_only=True, map_location="cpu")
+    # remove "_orig_mod." prefix if saved model was compiled
+    data["model"] = {k.replace("_orig_mod.", ""): v for k, v in data["model"].items()}
     model.load_state_dict(data["model"], strict=True)
     print(f"Loaded model from {path}")
 

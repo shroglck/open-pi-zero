@@ -34,6 +34,7 @@ for TASK_CONFIG in "${TASK_CONFIGS[@]}" ; do
         env.task=$TASK \
         horizon_steps=4 \
         act_steps=2 \
+        flow_schedule=beta \
         use_bf16=False \
         use_torch_compile=True \
         name=2024-12-26_22-42_42-ckpt_22182 \

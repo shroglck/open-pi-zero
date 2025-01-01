@@ -84,7 +84,7 @@ Success rates in **visual matching** setting in Simpler with float32 (results in
 | [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform.pt)   | 65.3% | 86.1% | 90.3% | 18.1% |
 | [Bridge-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_beta.pt)    | 55.6% | 86.1% | 91.7% | 54.2% |
 
-| Policy | Pick up Coke | Move Near | Close Drawer | Open Drawer | Open Top Drawer and Put Apple In |
+| Policy | Pick up Coke | Move Near | Close Drawer | Open Drawer | Open Top Drawer<br/> and Put Apple In |
 |:------:|:------------:|:---------:|:------------:|:-----------:|:--------------------------------:|
 | [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | 91.7% | 73.8% | 79.6% | 48.1% | 64.8% |
 | [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta.pt)    | 96.7% | 85.0% | 74.1% | 47.2% | 12.0% |
@@ -117,6 +117,8 @@ Run (with enough RAM) [slurm/modify_rlds.sh](slurm/modify_rlds.sh), which resize
 ### Training scripts
 
 See examples in the [slurm](slurm/) folder. TFDS dataloading takes a growing amount of CPU RAM and roughly peaks at about 300-400GB in a node as each DDP process spawns a dataloader.
+
+For further reducing VRAM usage, you may use (Q)LoRA by setting (`quantize=True` and) `lora=True`. However, the training performance may be affected. Or try [optimizer offloading](https://github.com/allenzren/open-pi-zero/blob/87b0f7acda9de6119c034fbfbde1d1867b1e57a4/src/agent/train.py#L170).
 
 [Discussion on RAM](https://github.com/openvla/openvla/issues/4) | [Possible error if running quantization](doc/error.md#9) | [My observations / lessons from training](doc/notes.md)
 

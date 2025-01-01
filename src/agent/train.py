@@ -131,8 +131,11 @@ class TrainAgent:
         log_allocated_gpu_memory(log, "loading model")
 
         # determine batch size and gradient accumulation steps
-        self.grad_accumulation_steps = (
-            cfg.global_batch_size // cfg.per_device_batch_size // world_size
+        self.grad_accumulation_steps = max(
+            cfg.global_batch_size // cfg.per_device_batch_size // world_size, 1
+        )
+        actual_global_batch_size = (
+            cfg.per_device_batch_size * self.grad_accumulation_steps * world_size
         )
 
         # dataloader --- spawn one for each rank, num_workers=0
@@ -157,7 +160,7 @@ class TrainAgent:
                 cfg.eval_size // cfg.per_device_batch_size // world_size
             )
         log.info(f"Total number of gradient updates: {self.n_updates}")
-        log.info(f"Global batch size: {cfg.global_batch_size}")
+        log.info(f"Global batch size: {actual_global_batch_size}")
         log.info(f"Per device batch size: {cfg.per_device_batch_size}")
         log.info(f"Gradient accumulation steps: {self.grad_accumulation_steps}")
 
@@ -500,7 +503,10 @@ class TrainAgent:
         self.cnt_update = data["cnt_update"]
         self.cnt_batch = data["cnt_batch"]
         self.wandb_id = data["wandb_id"]
-
+        # remove "_orig_mod." prefix if saved model was compiled
+        data["model"] = {
+            k.replace("_orig_mod.", ""): v for k, v in data["model"].items()
+        }
         self.model.load_state_dict(data["model"], strict=True)
         log.info(
             f"Loaded model from {path} at update {self.cnt_update} batch {self.cnt_batch}"
