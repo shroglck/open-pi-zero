@@ -129,7 +129,7 @@ class TrainAgent:
             dist.barrier()
         else:
             model = self.model
-        log_allocated_gpu_memory(log, "loading model")
+        log_allocated_gpu_memory(log, "loading model", self.gpu_id)
 
         # determine batch size and gradient accumulation steps
         self.grad_accumulation_steps = max(

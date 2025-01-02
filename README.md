@@ -6,7 +6,7 @@ The model adopts a MoE-like architecture (or the recent [MoT](https://arxiv.org/
 
 If you find a bug or think I may have misunderstood part of the architecture based on the paper, please raise an issue or email me.
 
-<img src="media/open-pi-zero-overview.jpg" alt="open-pi-zero-overview" width="50%"/>
+<img src="media/open-pi-zero-overview.png" alt="open-pi-zero-overview" width="50%"/>
 
 ## Installation
 Clone this repository at your directory. If running [Simpler eval](https://github.com/simpler-env/SimplerEnv) or trying out trained checkpoints, clone [fork](https://github.com/allenzren/SimplerEnv) (addded proprio support) to the same directory
@@ -31,7 +31,7 @@ git clone https://huggingface.co/google/paligemma-3b-pt-224
 
 ### Test text generation with pre-trained weights
 ```console
-uv run src/model/vla/pizero.py --text_only --load_pretrained_weights
+uv run src/model/vla/pizero.py --text_only --load_pretrained_weights --use_bf16
 ```
 
 <!-- Note: Current implementation will be fully bfloat16 if `--use_bf16` is set. Pre-trained PaliGemma may lose some accuracy [issue](https://github.com/huggingface/transformers/pull/29402) but I assume it is okay if being used as the VLA backbone. -->

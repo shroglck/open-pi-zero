@@ -20,6 +20,7 @@ TASK_CONFIGS=(
     "google_robot_close_drawer:fractal_drawer"
     "google_robot_place_apple_in_closed_top_drawer:fractal_apple"
 )
+# see the config file for the number of episodes in each task
 
 for TASK_CONFIG in "${TASK_CONFIGS[@]}" ; do
 

@@ -126,7 +126,7 @@ class EvalAgent:
                 "proprios": inputs["proprios"].to(self.dtype),
             }
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
-            # using bf16 shows <1e-2 difference in action inferred when using vs. not using kv cache (infer_action_naive, needs to pass in full causal_mask instead), if starting from the same initial noise. no difference when using float32
+            # using bf16 shows ~0.001 difference in action inferred when using vs. not using kv cache (infer_action_naive, needs to pass in full causal_mask instead), if starting from the same initial noise. no difference when using float32
             # https://github.com/huggingface/transformers/issues/25420#issuecomment-1775317535
             with torch.inference_mode():
                 actions = self.model(**inputs)

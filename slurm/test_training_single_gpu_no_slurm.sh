@@ -22,6 +22,9 @@ CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
     eval_freq=50 \
     eval_size=64 \
     save_model_freq=100 \
-    use_torch_compile=False \
-    use_bf16=True \
-    'resume_checkpoint_path="...fractal_train[:95%]_tp4_beta...ckpt....pt"'
+    lora=False \
+    quantize=False \
+    use_amp=True \
+    use_torch_compile=True \
+    use_bf16=True
+# 'resume_checkpoint_path="...fractal_train[:95%]_tp4_beta...ckpt....pt"'
