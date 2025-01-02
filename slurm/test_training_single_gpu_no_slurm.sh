@@ -16,7 +16,7 @@ CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
     log_dir=results/test/ \
     global_batch_size=32 \
     per_device_batch_size=16 \
-    flow_schedule=beta \
+    flow_sampling=beta \
     data.train.shuffle_buffer_size=10000 \
     data.train.num_parallel_calls=10 \
     eval_freq=50 \

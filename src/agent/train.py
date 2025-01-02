@@ -215,12 +215,12 @@ class TrainAgent:
         ########### Input processing ###########
 
         # flow matching timestep sampling
-        self.flow_schedule = cfg.get("flow_schedule", "beta")
-        assert self.flow_schedule in [
+        self.flow_sampling = cfg.get("flow_sampling", "beta")
+        assert self.flow_sampling in [
             "uniform",
             "beta",
-        ], f"Invalid flow matching timestep sampling schedule: {self.flow_schedule}"
-        if self.flow_schedule == "beta":
+        ], f"Invalid flow matching timestep sampling mode: {self.flow_sampling}"
+        if self.flow_sampling == "beta":
             flow_alpha = cfg.get("flow_alpha", 1.5)
             flow_beta = cfg.get("flow_beta", 1)
             self.flow_t_max = 1 - cfg.get("flow_sig_min", 0.001)
@@ -238,11 +238,11 @@ class TrainAgent:
         )
 
     def sample_fm_time(self, bsz: int) -> torch.FloatTensor:
-        if self.flow_schedule == "uniform":  # uniform between 0 and 1
+        if self.flow_sampling == "uniform":  # uniform between 0 and 1
             """https://github.com/gle-bellier/flow-matching/blob/main/Flow_Matching.ipynb"""
             eps = 1e-5
             t = (torch.rand(1) + torch.arange(bsz) / bsz) % (1 - eps)
-        elif self.flow_schedule == "beta":  # from pi0 paper
+        elif self.flow_sampling == "beta":  # from pi0 paper
             z = self.flow_beta_dist.sample((bsz,))
             t = self.flow_t_max * (1 - z)  # flip and shift
         return t

@@ -49,6 +49,6 @@ NCCL_SOCKET_IFNAME=ens27f0 srun uv run torchrun \
   n_nodes=$SLURM_JOB_NUM_NODES \
   action_lr=0.00005 \
   vlm_lr=0.00005 \
-  flow_schedule=beta \
+  flow_sampling=beta \
   use_torch_compile=True \
   use_bf16=True

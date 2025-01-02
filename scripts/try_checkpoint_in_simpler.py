@@ -42,9 +42,9 @@ def main(args):
 
     # determine flow matching schedule
     if "uniform" in args.checkpoint_path:
-        cfg.flow_schedule = "uniform"
+        cfg.flow_sampling = "uniform"
     if "beta" in args.checkpoint_path:
-        cfg.flow_schedule = "beta"
+        cfg.flow_sampling = "beta"
 
     # model
     dtype = torch.bfloat16 if args.use_bf16 else torch.float32
