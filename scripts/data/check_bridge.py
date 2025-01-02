@@ -54,7 +54,7 @@ if __name__ == "__main__":
             window_size=2,
             action_horizon=4,
             subsample_length=100,
-            skip_unlabeled=True,  # skip ones without language annotation
+            skip_unlabeled=False,  # skip ones without language annotation
             # max_action_from_stats=True,
             # max_proprio_from_stats=True,
         ),
@@ -105,7 +105,7 @@ if __name__ == "__main__":
     print("Dataset length (traj):", len(pytorch_dataset))
     dataloader = DataLoader(
         pytorch_dataset,
-        batch_size=16,
+        batch_size=64,
         num_workers=0,  # important to keep this to 0 so PyTorch does not mess with the parallelism
     )
     prep_time = time.time()
@@ -134,6 +134,8 @@ if __name__ == "__main__":
         ]
         actions = _sample["action"]
         proprios = _sample["observation"]["proprio"]
+        num_unlabled_texts = len([t for t in texts if t == ""])
+        print(num_unlabled_texts)
 
         # save an image
         img = Image.fromarray(images[0, :3].numpy().transpose(1, 2, 0))

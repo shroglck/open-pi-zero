@@ -10,7 +10,7 @@ name:
 device: cuda
 seed: 42
 checkpoint_path:
-n_eval_episode: 72     # octo simpler runs 3 seeds with 24 configs each
+n_eval_episode: 240     # octo simpler runs 3 seeds with 24 configs each, we will run 10 trials for each config
 n_video:  ${n_eval_episode}
 # sweeps:
 #   urdf_version:

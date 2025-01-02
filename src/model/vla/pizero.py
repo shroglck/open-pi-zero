@@ -316,7 +316,7 @@ class PiZero(nn.Module, NoSyncBase):
             self.num_proprio_tokens + 1,
             self.num_proprio_tokens + self.num_action_tokens + 1,
         ).repeat(bsz, 1)
-        # since proprio and action share the same mixture weights, makes sense to use [0 (proprio), 1 (action), 2 (action), ...] instead of [0 (proprio), 0 (action), 1 (action), ...]
+        # since proprio and action share the same mixture weights, makes sense to use [1 (proprio), 2 (action), 3 (action), ...] instead of [1 (proprio), 1 (action), 2 (action), ...]
         return causal_mask, vlm_position_ids, proprio_position_ids, action_position_ids
 
     def split_full_mask_into_submasks(

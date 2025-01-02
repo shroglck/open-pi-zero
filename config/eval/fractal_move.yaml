@@ -10,7 +10,7 @@ name:
 device: cuda
 seed: 42
 checkpoint_path:
-n_eval_episode: ${eval:'60 * 4'}  # 60 locations, 4 urdfs
+n_eval_episode: ${eval:'60 * 4 * 10'}  # 60 locations, 4 urdfs, 10 trials each
 n_video: ${n_eval_episode}
 # From Simpler: In each trial, one object serves as the source object, one serves as the target, and the other serves as the distractor (this creates 6 trials for each triplet and each triangle pattern). We randomly choose 5 triplets of objects among a total of 8 objects (blue plastic bottle, pepsi can, orange, 7up can, apple, sponge, coke can, redbull can), and adopt 2 triangle patterns (upright and inverted). This creates a total of 5 x 2 x 6 = 60 trials
 # sweeps:

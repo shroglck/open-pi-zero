@@ -3,7 +3,7 @@
 #SBATCH --job-name=pg-vla
 #SBATCH --output=logs/%A.out
 #SBATCH --error=logs/%A.err
-#SBATCH --time=47:59:59
+#SBATCH --time=71:59:59
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:8
 #SBATCH --ntasks-per-node=1
@@ -36,4 +36,5 @@ HYDRA_FULL_ERROR=1 uv run torchrun \
   vlm_lr=0.00005 \
   flow_schedule=beta \
   use_torch_compile=True \
-  use_bf16=True
+  use_bf16=True \
+  use_amp=True

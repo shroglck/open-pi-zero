@@ -3,13 +3,14 @@
 #SBATCH --job-name=eval-fractal
 #SBATCH --output=logs/eval/%A.out
 #SBATCH --error=logs/eval/%A.err
-#SBATCH --time=7:59:59
+#SBATCH --time=15:59:59
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 
+# better to run jobs for each task
 TASK_CONFIGS=(
     "google_robot_pick_horizontal_coke_can:fractal_coke"
     "google_robot_pick_vertical_coke_can:fractal_coke"
@@ -37,6 +38,6 @@ for TASK_CONFIG in "${TASK_CONFIGS[@]}" ; do
         flow_schedule=beta \
         use_bf16=False \
         use_torch_compile=True \
-        name=2024-12-26_22-42_42-ckpt_22182 \
-        'checkpoint_path="results/train/paligemma_fractal_train_tp4_gamma/2024-12-26_22-42_42/checkpoint/ckpt_22182.pt"'
+        name=fractal_beta \
+        'checkpoint_path="...fractal_beta.pt"'
 done

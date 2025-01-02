@@ -171,7 +171,7 @@ def forward_mixture_attn(
         # prepare rope
         query_states = query_states_all[name]
         rope_cos, rope_sin = mixtures[name].attn_func(
-            "forward_rotary_emb", layer_idx, position_ids_all[name]
+            "forward_rotary_emb", layer_idx, query_states, position_ids_all[name]
         )
 
         # always use kv cache if it has the current layer
@@ -270,7 +270,9 @@ def forward_mixture_attn(
     # Apply the softmax / dropout
     attn_weights = attn_weights + attention_mask
     # [Batch_Size, Num_Heads_Q, Full_Seq_Len, Full_Seq_Len]
-    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=attn_weights.dtype)
+    attn_weights = nn.functional.softmax(attn_weights, dim=-1, dtype=torch.float32).to(
+        query_states.dtype
+    )
     attn_weights = nn.functional.dropout(
         attn_weights,
         p=attention_dropout,
@@ -345,7 +347,11 @@ class JointModel(nn.Module):
         # [Batch_Size, Seq_Len, Hidden_Size]
         for name in active_mixture_names:
             hidden_size = embeds_all[name].shape[-1]
-            normalizer = torch.tensor(hidden_size**0.5, dtype=embeds_all[name].dtype)
+            normalizer = torch.tensor(
+                hidden_size**0.5,
+                dtype=embeds_all[name].dtype,
+                device=embeds_all[name].device,
+            )
             embeds_all[name] *= normalizer
 
         # layers

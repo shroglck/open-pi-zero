@@ -1,5 +1,5 @@
 """
-Main training agent. Using torch.compile and bfloat16 by default. Optionally (Q)LoRA. Not using AMP.
+Main training agent. Using torch.compile and bfloat16 by default. Optionally (Q)LoRA.
 
 """
 
@@ -79,6 +79,7 @@ class TrainAgent:
         # training params
         self.n_updates = int(cfg.n_updates)
         self.max_grad_norm = cfg.max_grad_norm
+        self.use_amp = cfg.get("use_amp", True)
 
         # model
         assert not (
@@ -105,8 +106,8 @@ class TrainAgent:
         ):  # model being compiled in the first batch which takes some time
             self.model = torch.compile(
                 self.model,
-                mode="default",  # "reduce-overhead" speeds up a lot and reduces VRAM usage a lot more, but causes nan loss on L40, maybe issue with cudagraphs or 8-bit optimizer; max-autotune(-no-cudagraphs) not working
-                # backend="cudagraphs", # inductor
+                mode="default",  # "reduce-overhead" speeds up a lot and reduces VRAM usage a lot more, but causes nan loss on L40, maybe issue with cudagraphs or 8-bit optimizer; max-autotune works on H100s, takes a while to compile
+                # backend="inductor", # default: inductor; cudagraphs
             )
         # modes: https://pytorch.org/docs/main/generated/torch.compile.html
         # backends: https://pytorch.org/docs/stable/torch.compiler.html
@@ -343,13 +344,19 @@ class TrainAgent:
                 # make sure only syncing when taking gradient steps
                 if (cnt_batch + 1) % self.grad_accumulation_steps != 0:
                     with self.model.no_sync():
-                        loss_train = self.model(**inputs)
+                        with torch.autocast(
+                            device_type="cuda", dtype=self.dtype, enabled=self.use_amp
+                        ):
+                            loss_train = self.model(**inputs)
                         if self.debug:
                             log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                         normalized_loss = loss_train / self.grad_accumulation_steps
                         normalized_loss.backward()
                 else:
-                    loss_train = self.model(**inputs)
+                    with torch.autocast(
+                        device_type="cuda", dtype=self.dtype, enabled=self.use_amp
+                    ):
+                        loss_train = self.model(**inputs)
                     if self.debug:
                         log_allocated_gpu_memory(log, f"forward batch {cnt_batch}")
                     normalized_loss = loss_train / self.grad_accumulation_steps
@@ -491,7 +498,7 @@ class TrainAgent:
             else None,
             "wandb_id": wandb.run.id if self.use_wandb else None,
         }
-        savepath = os.path.join(self.checkpoint_dir, f"ckpt_{cnt_update}.pt")
+        savepath = os.path.join(self.checkpoint_dir, f"step{cnt_update}.pt")
         torch.save(data, savepath)
         checkpoint_size_in_gb = os.path.getsize(savepath) / (1024**3)
         log.info(f"Saved model to {savepath}, size: {checkpoint_size_in_gb:.3f} GB")

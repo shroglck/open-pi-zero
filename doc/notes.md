@@ -6,7 +6,7 @@ adaLN(-Zero) for time conditioning seemed to speed up training a bit initially, 
 
 Overall, Beta sampling in flow matching timesteps achieved better validation loss, but I usually saw Uniform sampling matching or even outperforming in validation accuracy with low threshold (e.g., predicted actions within 0.05 from the normalized ground-truth ones in all dimensions). Wigh high threshold like 0.3 or 0.5, Beta seemed to consistenly outperform Uniform.
 
-I was able to train with learning rate as high as 3e-4, thanks to the stability of the flow matching / diffusion objective?
+I was able to train with learning rate as high as 3e-4 with batch size 1024, thanks to the stability of the flow matching / diffusion objective?
 
 I tried training with batch size from 256 to 2048, and the training curves (wall-clock time vs. training loss) were similar.
 

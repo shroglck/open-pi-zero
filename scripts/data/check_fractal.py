@@ -56,7 +56,7 @@ if __name__ == "__main__":
             window_size=2,
             action_horizon=4,
             subsample_length=100,
-            skip_unlabeled=True,  # skip ones without language annotation
+            skip_unlabeled=False,  # skip ones without language annotation
             # max_action_from_stats=True,
             # max_proprio_from_stats=True,
         ),
@@ -140,6 +140,8 @@ if __name__ == "__main__":
             (proprios[0, -1, -2:-1], proprios[0, -1, -5:-2])
         )  # quat [x, y, z, w] to [w, x, y, z]
         sample_rpy = quat2euler(sample_quat)
+        num_unlabled_texts = len([t for t in texts if t == ""])
+        print(num_unlabled_texts)
 
         # quat is in [x, y, z, w], and relative to robot base (unlike bridge that is relative to a top-down rotation). z is pointing forward/downward from the fingers, green is pointing left to the finger (sideway), and red is pointing away from the palm (pointing behind)
 

@@ -59,7 +59,7 @@ def main(args):
         model = torch.compile(
             model,
             mode="default",  # "reduce-overhead; max-autotune(-no-cudagraphs)
-            # backend="cudagraphs", # inductor
+            # backend="inductor", # default: inductor; cudagraphs
         )
     # modes: https://pytorch.org/docs/main/generated/torch.compile.html
     # backends: https://pytorch.org/docs/stable/torch.compiler.html

@@ -1,7 +1,7 @@
 # Copyright (c) 2023 Michael Hu.
 # This project is released under the MIT License.
 # See the accompanying LICENSE file for details.
-
+# https://github.com/michaelnny/QLoRA-LLM/blob/main/LICENSE
 
 #  Derived from https://github.com/microsoft/LoRA
 #  ------------------------------------------------------------------------------------------

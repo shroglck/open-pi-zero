@@ -3,13 +3,14 @@
 #SBATCH --job-name=eval-bridge
 #SBATCH --output=logs/eval/%A.out
 #SBATCH --error=logs/eval/%A.err
-#SBATCH --time=3:59:59
+#SBATCH --time=5:59:59
 #SBATCH --nodes=1
 #SBATCH --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=8
 #SBATCH --mem=40G
 
+# better to run jobs for each task
 TASKS=(
     "widowx_carrot_on_plate"
     "widowx_put_eggplant_in_basket"
@@ -17,8 +18,9 @@ TASKS=(
     "widowx_stack_cube"
 )
 
-N_EVAL_EPISODE=72   # octo simpler runs 3 seeds with 24 configs each
+N_EVAL_EPISODE=240   # octo simpler runs 3 seeds with 24 configs each, here we run 10 seeds
 
+# flow_schedule does not matter in eval; only used in training
 for TASK in ${TASKS[@]}; do
 
     CUDA_VISIBLE_DEVICES=0 HYDRA_FULL_ERROR=1 uv run \
@@ -31,10 +33,10 @@ for TASK in ${TASKS[@]}; do
         n_video=$N_EVAL_EPISODE \
         env.task=$TASK \
         horizon_steps=4 \
-        act_steps=2 \
+        act_steps=4 \
         flow_schedule=beta \
         use_bf16=False \
         use_torch_compile=True \
-        name=2024-12-26_15-35_42-ckpt_23584 \
-        'checkpoint_path="results/train/paligemma_bridge_train_tp4_gamma/2024-12-26_15-35_42/checkpoint/ckpt_23584.pt"'
+        name=bridge_beta \
+        'checkpoint_path="...bridge_beta.pt"'
 done

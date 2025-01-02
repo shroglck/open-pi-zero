@@ -43,19 +43,19 @@ class EvalAgent:
         self.load_checkpoint(cfg.checkpoint_path)
         self.model.freeze_all_weights()
         self.model.to(self.dtype)
-        self.model.to(self.device)  # TODO(allenzren): test quantization
+        self.model.to(self.device)
         if cfg.get(
             "use_torch_compile", True
         ):  # model being compiled in the first batch which takes some time
             self.model = torch.compile(
                 self.model,
                 mode="default",  # "reduce-overhead", max-autotune(-no-cudagraphs)
-                # backend="cudagraphs", # inductor
+                # backend="inductor", # default: inductor; cudagraphs
             )
         # modes: https://pytorch.org/docs/main/generated/torch.compile.html
         # backends: https://pytorch.org/docs/stable/torch.compiler.html
         self.model.eval()
-        log.info(f"Using cuda device: {self.device}")
+        log.info(f"Using cuda device: {self.device} dtype: {self.dtype}")
         log_allocated_gpu_memory(log, "loading model")
         self.act_steps = (
             cfg.act_steps
@@ -127,6 +127,7 @@ class EvalAgent:
             }
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
             # using bf16 shows <1e-2 difference in action inferred when using vs. not using kv cache (infer_action_naive, needs to pass in full causal_mask instead), if starting from the same initial noise. no difference when using float32
+            # https://github.com/huggingface/transformers/issues/25420#issuecomment-1775317535
             with torch.inference_mode():
                 actions = self.model(**inputs)
                 # actions_naive = self.model.infer_action_naive(**inputs_naive)

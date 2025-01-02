@@ -10,7 +10,7 @@ name:
 device: cuda
 seed: 42
 checkpoint_path:
-n_eval_episode: ${eval:'25 * 4'}  # 25 locations, 4 urdfs
+n_eval_episode: ${eval:'25 * 4 * 10'}  # 25 locations, 4 urdfs, 10 trials each
 n_video: ${n_eval_episode}
 # From Simpler: for each orientation, we place the coke can at 25 grid positions within a rectangle on the tabletop
 # sweeps:
