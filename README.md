@@ -6,7 +6,7 @@ The model adopts a MoE-like architecture (or the recent [MoT](https://arxiv.org/
 
 If you find a bug or think I may have misunderstood part of the architecture based on the paper, please raise an issue or email me.
 
-<img src="media/open-pi-zero-overview.png" alt="open-pi-zero-overview" width="50%"/>
+<img src="media/open-pi-zero-overview.png" alt="open-pi-zero-overview" width="70%"/>
 
 ## Installation
 Clone this repository at your directory. If running [Simpler eval](https://github.com/simpler-env/SimplerEnv) or trying out trained checkpoints, clone [fork](https://github.com/allenzren/SimplerEnv) (addded proprio support) to the same directory
@@ -44,7 +44,7 @@ uv run src/model/vla/pizero.py
 ## Try checkpoints
 
 I have only trained with either fractal or bridge dataset (unlabeled skipped) so far (training with mixed OXE data soon). Links to the models:
- [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform.pt) | [Bridge-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_beta.pt) | [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta.pt)
+ [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform_step19296_2024-12-26_22-31_42.pt) | [Bridge-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_beta_step19296_2024-12-26_22-30_42.pt) | [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform_step29576_2024-12-31_22-26_42.pt) | [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta_step29576_2024-12-29_13-10_42.pt)
 
 Uniform and Beta stands for the schedule for sampling flow matching timesteps during training: Uniform samples uniformly between 0 and 1, and Beta, proposed by Pi0, samples with higher density at earlier timesteps.
 
@@ -58,16 +58,20 @@ uv run scripts/try_checkpoint_in_simpler.py \
     --use_torch_compile # first batch will be slow
 ```
 
+### Training details
+
+The models were trained with learning rate 5e-5, global batch size 1024, and roughly 19k gradient steps with bridge (~12 epochs) and 30k with fractal (~8 epochs). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2-3 days on one L40 node (per-GPU bsz 16 and thus gradient accumulation step 8), or 12-18 hours with H100s (bsz 32). torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage (peak 40GB with bsz 16). Action and proprioception data were normalized in [-1, 1].
+
 ### Inference speed and VRAM usage
 
 Inference involves one forward pass through PaliGemma (saving KV cache), and then 10 flow matching steps through the action expert. With RTX 4090:
 
 | Setup | Time | Peak VRAM |
 |:------:|:---------:| :---------:|
-| float32 | 224ms | 13.6GB |
-| bf16 | 232ms | 6.7GB |
-| float32 + torch.compile | 91ms | 14.0GB |
-| bf16 + torch.compile | 72ms | 6.7GB |
+| float32 | 237ms | 13.6GB |
+| bf16 | 245ms | 6.7GB |
+| float32 + torch.compile | 89ms | 13.6GB |
+| bf16 + torch.compile | 75ms | 6.7GB |
 | Pi0 paper | 73ms* | - |
 
 torch.compile mode is set to `default`. I also tried to use torch_tensorrt but compilation fails silently right now.
@@ -78,27 +82,35 @@ torch.compile mode is set to `default`. I also tried to use torch_tensorrt but c
 
 For both set of environments I tried running all entire action chunk (size 4) or the first 2 steps only. Bridge policies work better with running all, while fractal policies work better with running 2 out 4. Note that bridge data is 5Hz and fractal data is 3Hz.
 
-Success rates in **visual matching** setting in Simpler with float32 (results in visual aggregation setting coming soon)
+Success rates in **visual matching** setting in Simpler (results in visual aggregation setting coming soon)
 
-| Policy | Carrot on plate | Eggplant in basket | Spoon on towel | Stack cube |
-|:------:|:---------------:|:------------------:|:--------------:|:----------:|
-| [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform.pt)   | 58.8% | 79.2% | 63.3% | 21.3% |
-| [Bridge-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_beta.pt)    | 55.8% | 85.4% | 84.9% | 47.9% |
+| Policy | Dtype | Carrot on plate | Eggplant in basket | Spoon on towel | Stack cube |
+|:------:|:-----:|:---------------:|:------------------:|:--------------:|:----------:|
+| [Bridge-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_uniform_step19296_2024-12-26_22-31_42.pt)   | float32 | 58.8% | 79.2% | 63.3% | 21.3% |
+| ^   | bf16 | 58.8% | 81.3% | 61.7% | 23.8% |
+| [Bridge-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/bridge_beta_step19296_2024-12-26_22-30_42.pt)    | float32 | 55.8% | 85.4% | 84.6% | 47.9% |
+| ^    | bf16 | 52.5% | 87.9% | 83.8% | 52.5% |
+<!-- uniform      58.8, 79.2, 63.3, 21.3 -->
+<!-- uniform bf16 58.8, 81.3, 61.7, 23.8 -->
+<!-- beta         55.8, 85.4, 84.6, 47.9 -->
+<!-- beta bf16    52.5, 87.9, 83.8, 52.5 -->
 
-| Policy | Pick up Coke | Move Near | Close Drawer | Open Drawer | Open Top Drawer<br/> and Put Apple In |
-|:------:|:------------:|:---------:|:------------:|:-----------:|:--------------------------------:|
-| [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform.pt) | 86.0% | 80.4% | 72.2% | 47.2% | 51.9% |
-| [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta.pt)    | 97.7% | 75.0% | 78.7% | 64.8% | 46.3% |
+| Policy | Dtype | Pick up Coke | Move Near | Close Drawer | Open Drawer | Open Top Drawer and Put Apple In |
+|:------:|:-----:|:------------:|:---------:|:------------:|:-----------:|:--------------------------------:|
+| [Fractal-Uniform](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_uniform_step29576_2024-12-31_22-26_42.pt) | float32 | 88.0% | 80.3% | 66.7% | 45.2% | 52.2% |
+| ^ | bf16 | 88.9% | 80.5% | 65.4% | 45.3% | 53.0% |
+| [Fractal-Beta](https://huggingface.co/allenzren/open-pi-zero/blob/main/fractal_beta_step29576_2024-12-29_13-10_42.pt) | float32 | 97.9% | 78.7% | 75.0% | 49.5% | 46.6% |
+| ^ | bf16 | 97.8% | 78.4% | 74.7% | 51.7% | 46.1% |
+<!-- uniform      88.0, 80.3, 66.7, 45.2, 52.2 -->
+<!-- uniform bf16 88.9, 80.5, 65.4, 45.3, 53.0 -->
+<!-- beta         97.9, 78.7, 75.0, 49.5, 46.6 -->
+<!-- beta bf16    97.8, 78.4, 74.7, 51.7, 46.1 -->
 
-These numbers can vary significantly among checkpoints mostly converged but from different epochs, especially in "stack cube" and "open top drawer and put apple in" tasks. Training with mixed datasets or using EMA might help.
+All numbers are averaged over 10 trials on top of prepackaged variations (robot/obj locations, URDFs, rgb_overlays) of each task in Simpler (total 240-2400 trials per task --- I see significant variations with <=3 seeds). Also note that these numbers may vary significantly among different checkpoints that are both mostly converged but from different epochs --- training with mixed datasets or using EMA might help.
+
+Reason on evaluating with both bf16 and float32: While the model is trained with bf16, mixed precision, and no KV caching, during inference KV cache of VLM/Proprio is used. This leads to a distribution shift of the policy output when bf16 is used [(discussion)](https://github.com/huggingface/transformers/issues/25420#issuecomment-1775317535) compared to not using KV cache, estimated around 5e-4 to 2.5e-3 (out of the [-1, 1] normalization range) in avg L1 distance; difference is negligible when float32 is used.
 
 Disclaimer: Please do not associate the results here with possible results from Pi.
-
-### Training details
-
-The models were trained with learning rate 5e-5, global batch size 1024, and roughly 19k gradient steps with bridge (~12 epochs) and 30k with fractal (~8 epochs). Input to the model includes single image (256 tokens, no history), max 20 text tokens, 1 proprio token (no history), and 4 action tokens (chunk size 4). It took roughly 2-3 days on one L40 node (per-GPU bsz 16 and thus gradient accumulation step 8), or 12-18 hours with H100s (bsz 32). torch.compile, bfloat16, and 8-bit optimizer were used to reduce VRAM usage (peak 32GB with bsz 16). Action and proprioception data were normalized in [-1, 1].
-
-Training may be faster now with some new optimization, possibly with bigger per-GPU batch size too.
 
 ## Run training
 
