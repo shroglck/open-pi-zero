@@ -18,8 +18,8 @@ git clone https://github.com/allenzren/SimplerEnv --recurse-submodules
 2. Install [uv](https://docs.astral.sh/uv/getting-started/installation/) and run the following in the repo directory:
 ```console
 uv sync
-uv pip install -e . ../SimplerEnv
-uv pip install -e . ../SimplerEnv/ManiSkill2_real2sim
+uv pip install -e ../SimplerEnv
+uv pip install -e ../SimplerEnv/ManiSkill2_real2sim
 ```
 Or you may use venv or conda env instead of uv and run `pip install -e .` in all three directories.
 
