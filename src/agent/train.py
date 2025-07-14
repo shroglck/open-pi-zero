@@ -33,7 +33,6 @@ from src.utils.optim import CosineAnnealingWarmupRestarts, get_num_params_in_bil
 
 log = logging.getLogger(__name__)
 
-wandb.login("229189d17b2d29338dfe368f65843c88d31a4fd0")
 class TrainAgent:
     def __init__(self, cfg):
         # device setup
