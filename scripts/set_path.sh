@@ -6,12 +6,6 @@
 DEFAULT_DATA_DIR="${PWD}/data"
 DEFAULT_LOG_DIR="${PWD}/log"
 
-# Prompt the user for input, allowing overrides
-read -p "Enter the desired data directory [default: ${DEFAULT_DATA_DIR}], leave empty to use default: " DATA_DIR
-VLA_DATA_DIR=${DATA_DIR:-$DEFAULT_DATA_DIR}  # Use user input or default if input is empty
-
-read -p "Enter the desired logging directory [default: ${DEFAULT_LOG_DIR}], leave empty to use default: " LOG_DIR
-VLA_LOG_DIR=${LOG_DIR:-$DEFAULT_LOG_DIR}  # Use user input or default if input is empty
 
 # Export to current session
 export VLA_DATA_DIR="$VLA_DATA_DIR"
@@ -30,8 +24,7 @@ echo "Environment variables VLA_DATA_DIR and VLA_LOG_DIR added to .bashrc and ap
 ##################### WandB #####################
 
 # Prompt the user for input, allowing overrides
-read -p "Enter your WandB entity (username or team name), leave empty to skip: " ENTITY
-
+ENTITY="shgrover"
 # Check if ENTITY is not empty
 if [ -n "$ENTITY" ]; then
   # If ENTITY is not empty, set the environment variable
