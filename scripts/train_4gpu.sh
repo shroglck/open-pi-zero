@@ -23,7 +23,7 @@ eval "$(python /ariesdv0/discovery.py 1)"
 TF_CPP_MIN_LOG_LEVEL=2 OMP_NUM_THREADS=32 python -m torch.distributed.launch --nnodes 1 --nproc-per-node 2 --use-env \
     --master-addr ${MASTER_ADDR} --node-rank ${NODE_RANK} \
     scripts/run.py \
-  --config-name=bridge \
+  --config-name=fractal \
   action_lr=0.00005 \
   vlm_lr=0.00005 \
   flow_sampling=beta \
