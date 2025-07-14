@@ -484,9 +484,9 @@ class TrainAgent:
                                     )
                                 }
                             )
-                            _metrics["eval l1 loss"] = eval_l1_loss.item()
+                            wandb_metrics["eval l1 loss"] = eval_l1_loss.item()
                             new_eval_from_last_log = False
-                        wandb.log(_metrics, step=cnt_batch, commit=True)
+                        wandb.log(wandb_metrics, step=cnt_batch, commit=True)
 
                 # count
                 cnt_batch += 1
