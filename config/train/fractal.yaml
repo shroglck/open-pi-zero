@@ -41,12 +41,12 @@ data:
   train:
     dataset_mix: fractal
     split: train[:95%]
-    data_path: ${oc.env:VLA_DATA_DIR}/resize_224
+    data_path: ${oc.env:VLA_DATA_DIR}
     window_size: ${cond_steps}
     action_horizon: ${horizon_steps}
     skip_unlabeled: True
     load_proprio: True
-    shuffle_buffer_size: 200000
+    shuffle_buffer_size: 20000
     num_parallel_calls: 100
     traj_transform_threads: 10
     traj_read_threads: 10
@@ -61,11 +61,11 @@ n_epochs: 10  # provided ckpts were about 8 epochs
 n_updates: ${eval:'3786400 // ${global_batch_size} * ${n_epochs}'}  # fractal dataset has 3786400 transitions in total, all used
 save_model_freq: ${eval:'3786400 // ${global_batch_size} * 1'}
 save_model_start: ${eval:'3786400 // ${global_batch_size} * 3'}
-eval_freq: 2000
+eval_freq: 20000
 eval_size: 1024
 eval_thresholds: [0.05, 0.1, 0.2, 0.3, 0.5]
 
-global_batch_size: 1024
+global_batch_size: 128
 per_device_batch_size: 16
 action_lr: 5e-5
 vlm_lr: 5e-5
