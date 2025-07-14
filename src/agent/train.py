@@ -226,7 +226,7 @@ class TrainAgent:
 
         # processor --- assume paligemma for now
         self.tokenizer = AutoTokenizer.from_pretrained(
-            cfg.pretrained_model_path, padding_side="right"
+            "google/paligemma-3b-pt-224", padding_side="right"
         )
         self.processor = VLAProcessor(
             self.tokenizer,
