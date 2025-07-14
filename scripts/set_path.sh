@@ -5,12 +5,12 @@
 # Set default paths
 DEFAULT_DATA_DIR="${PWD}/data"
 DEFAULT_LOG_DIR="${PWD}/log"
-
+CACHE_DIR="${PWD}"
 
 # Export to current session
 export VLA_DATA_DIR="$VLA_DATA_DIR"
 export VLA_LOG_DIR="$VLA_LOG_DIR"
-export TRANSFORMERS_CACHE=${PWD}
+export TRANSFORMERS_CACHE="$CACHE_DIR"
 
 # Confirm the paths with the user
 echo "Data directory set to: $VLA_DATA_DIR"
