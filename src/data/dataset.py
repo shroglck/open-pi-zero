@@ -398,7 +398,7 @@ def make_dataset_from_rlds(
     def is_nonzero_length(traj):
         return tf.shape(traj["action"])[0] > 0
 
-    data_dir = "/ariesdv0/openvla/OXE/rlds_mod/fractal20220817_data"
+    data_dir = "/ariesdv0/openvla/OXE/rlds_mod"
     builder = tfds.builder(name, data_dir=data_dir)
 
     # load or compute dataset statistics
