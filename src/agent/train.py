@@ -62,7 +62,6 @@ class TrainAgent:
         if self.use_wandb:
             wandb.init(
                 entity="shgrover",
-                project="VLA",
                 name=cfg.wandb.run,
                 config=OmegaConf.to_container(cfg, resolve=True),
                 id=self.wandb_id if hasattr(self, "wandb_id") else None,
@@ -485,9 +484,9 @@ class TrainAgent:
                                     )
                                 }
                             )
-                            wandb_metrics["eval l1 loss"] = eval_l1_loss.item()
+                            _metrics["eval l1 loss"] = eval_l1_loss.item()
                             new_eval_from_last_log = False
-                        wandb.log(wandb_metrics, step=cnt_batch, commit=True)
+                        .log(_metrics, step=cnt_batch, commit=True)
 
                 # count
                 cnt_batch += 1
