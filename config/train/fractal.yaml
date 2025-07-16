@@ -59,7 +59,7 @@ wandb:
 log_freq: 16
 n_epochs: 10  # provided ckpts were about 8 epochs
 n_updates: ${eval:'3786400 // ${global_batch_size} * ${n_epochs}'}  # fractal dataset has 3786400 transitions in total, all used
-save_model_freq: ${eval:'3786400 // ${global_batch_size} * 1'}
+save_model_freq: 10000 #${eval:'3786400 // ${global_batch_size} * 1'}
 save_model_start: 2 #${eval:'3786400 // ${global_batch_size} * 3'}
 eval_freq: 20000
 eval_size: 1024
