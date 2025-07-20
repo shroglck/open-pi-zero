@@ -12,8 +12,7 @@ n_nodes: 1
 seed: 42
 pretrained_model_path: ${oc.env:TRANSFORMERS_CACHE}/paligemma-3b-pt-224
 load_pretrained_weights: True
-resume_checkpoint_path: /ariesdv0/agopalkr/openvla-logs/pi-0-224px-bridge_cotraining_proprio_st_4/train/fractal_train%5B:95%25%5D_tp4_beta/2025-07-15_21-43_42/checkpoint/step118324.pt
-train_vlm: True
+resume_checkpoint_path:
 action_expert_adaptive_mode:  # adaLN, adaLN-Zero, or None
 use_torch_compile: True
 use_bf16: True
@@ -46,7 +45,7 @@ data:
     action_horizon: ${horizon_steps}
     skip_unlabeled: True
     load_proprio: True
-    shuffle_buffer_size: 20000
+    shuffle_buffer_size: 200000
     num_parallel_calls: 100
     traj_transform_threads: 10
     traj_read_threads: 10
