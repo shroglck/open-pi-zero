@@ -61,6 +61,7 @@ class TrainAgent:
         self.use_wandb = cfg.get("wandb", False) and self.main_rank
         if self.use_wandb:
             wandb.init(
+                entity="shrgo",
                 project="VLA",
                 name=cfg.wandb.run,
                 config=OmegaConf.to_container(cfg, resolve=True),
