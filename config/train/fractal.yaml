@@ -45,7 +45,7 @@ data:
     action_horizon: ${horizon_steps}
     skip_unlabeled: True
     load_proprio: True
-    shuffle_buffer_size: 200000
+    shuffle_buffer_size: 100000
     num_parallel_calls: 100
     traj_transform_threads: 10
     traj_read_threads: 10
